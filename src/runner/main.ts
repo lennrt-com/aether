@@ -92,25 +92,25 @@ try {
   await emit("ActionStarted", { url, instruction, egressIp: session.egressIp }, actionId);
   try {
     const agent = session.stagehand.agent({ mode: "hybrid" });
-    let stepIdx = 0;
     const result = await agent.execute({
       instruction: `Go to ${url} first. Then: ${instruction}`,
       maxSteps,
-      callbacks: {
-        onStepFinish: async (step) => {
-          stepIdx += 1;
-          await emit(
-            "ActionSucceeded",
-            {
-              step: stepIdx,
-              toolCalls: step.toolCalls.map((tc) => tc.toolName),
-              text: step.text.slice(0, 500),
-            },
-            `${actionId}:step:${stepIdx}`,
-          );
-        },
-      },
     });
+    // Per-step audit events from the agent trace (callbacks are experimental in v3).
+    for (let i = 0; i < result.actions.length; i++) {
+      const action = result.actions[i];
+      await emit(
+        "ActionSucceeded",
+        {
+          step: i + 1,
+          actionType: action.type,
+          reasoning: typeof action.reasoning === "string" ? action.reasoning.slice(0, 500) : undefined,
+          pageUrl: action.pageUrl,
+          timeMs: action.timeMs,
+        },
+        `${actionId}:step:${i + 1}`,
+      );
+    }
     if (result.success) {
       await emit(
         "ActionSucceeded",

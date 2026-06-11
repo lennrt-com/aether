@@ -2,6 +2,7 @@ import { mutation, internalMutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
+import { taskStatus } from "./schema";
 import { assertWorkerKey } from "./lib/guards";
 import { appendEvent } from "./events";
 
@@ -44,6 +45,37 @@ export const get = query({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, { taskId }) => {
     return await ctx.db.get(taskId);
+  },
+});
+
+export const listByStatus = query({
+  args: { status: taskStatus },
+  handler: async (ctx, { status }) => {
+    return await ctx.db
+      .query("tasks")
+      .withIndex("by_status_dueAt", (q) => q.eq("status", status))
+      .collect();
+  },
+});
+
+export const cancel = mutation({
+  args: { workerKey: v.string(), taskId: v.id("tasks") },
+  handler: async (ctx, { workerKey, taskId }) => {
+    assertWorkerKey(workerKey);
+    const task = await ctx.db.get(taskId);
+    if (!task) throw new Error(`task not found: ${taskId}`);
+    if (task.status !== "pending") throw new Error(`cannot cancel ${task.status} task`);
+    await ctx.db.patch(taskId, { status: "cancelled" });
+  },
+});
+
+export const sessionForTask = query({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, { taskId }) => {
+    return await ctx.db
+      .query("sessions")
+      .withIndex("by_task", (q) => q.eq("taskId", taskId))
+      .first();
   },
 });
 

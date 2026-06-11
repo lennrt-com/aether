@@ -8,10 +8,13 @@
  * @module
  */
 
+import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as lib_guards from "../lib/guards.js";
 import type * as ping from "../ping.js";
 import type * as profiles from "../profiles.js";
+import type * as tasks from "../tasks.js";
+import type * as workers from "../workers.js";
 
 import type {
   ApiFromModules,
@@ -20,10 +23,13 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  crons: typeof crons;
   events: typeof events;
   "lib/guards": typeof lib_guards;
   ping: typeof ping;
   profiles: typeof profiles;
+  tasks: typeof tasks;
+  workers: typeof workers;
 }>;
 
 /**

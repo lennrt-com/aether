@@ -6,14 +6,14 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts"
+    "worker": "tsx src/worker/main.ts"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "^3.0.0",
     "convex": "^1.41.0",
     "dotenv": "^16.4.7",
     "proxy-chain": "^3.0.0",
+    "undici": "^8.4.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

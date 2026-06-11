@@ -3,6 +3,7 @@ import type { MutationCtx } from "./_generated/server";
 import { v, type Infer } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { assertWorkerKey } from "./lib/guards";
+import { evaluateCore, isSignalEvent } from "./health";
 
 // Closed taxonomy for v1 (Appendix B). Mirror of src/shared/types.ts.
 const EVENT_TYPES = [
@@ -64,7 +65,14 @@ export const append = mutation({
   args: { workerKey: v.string(), ...envelopeArgs },
   handler: async (ctx, { workerKey, ...envelope }) => {
     assertWorkerKey(workerKey);
-    return await appendEvent(ctx, envelope);
+    const id = await appendEvent(ctx, envelope);
+    // Soft-signal events feed the health state machine in the same transaction.
+    if (isSignalEvent(envelope.type)) {
+      await evaluateCore(ctx, envelope.profileId, {
+        restrictionDetected: envelope.type === "RestrictionDetected",
+      });
+    }
+    return id;
   },
 });
 

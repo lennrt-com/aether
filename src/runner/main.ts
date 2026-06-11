@@ -9,6 +9,7 @@ import fs from "node:fs";
 import { api } from "../../convex/_generated/api.js";
 import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { createEmitter } from "./emit.js";
+import { classifyPage } from "./classify.js";
 import { launchSession, DEFAULT_MODEL } from "./session.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
@@ -120,6 +121,7 @@ try {
     const page = session.stagehand.context.activePage();
     if (!page) throw new Error("no active page after launch");
     await page.goto(url, { waitUntil: "load" });
+    await classifyPage(session.stagehand, emit, actionId);
 
     let evalResult: unknown;
     if (payload.evaluate) {
@@ -150,6 +152,7 @@ try {
           `${actionId}:step:${i + 1}`,
         );
       }
+      await classifyPage(session.stagehand, emit, actionId);
       if (result.success) {
         await emit(
           "ActionSucceeded",

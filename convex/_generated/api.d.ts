@@ -8,7 +8,10 @@
  * @module
  */
 
+import type * as events from "../events.js";
+import type * as lib_guards from "../lib/guards.js";
 import type * as ping from "../ping.js";
+import type * as profiles from "../profiles.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +20,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  events: typeof events;
+  "lib/guards": typeof lib_guards;
   ping: typeof ping;
+  profiles: typeof profiles;
 }>;
 
 /**

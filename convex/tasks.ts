@@ -5,6 +5,7 @@ import type { Doc } from "./_generated/dataModel";
 import { taskStatus } from "./schema";
 import { assertWorkerKey } from "./lib/guards";
 import { appendEvent } from "./events";
+import { getActiveStrategy } from "./policies";
 
 // Pinned (Phase 2): lease 10 min, max 3 attempts, 30 min * attempts backoff.
 // LEASE_MS deployment env var exists only for verification scripts.
@@ -47,6 +48,16 @@ export const get = query({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, { taskId }) => {
     return await ctx.db.get(taskId);
+  },
+});
+
+export const listFor = query({
+  args: { profileId: v.id("profiles") },
+  handler: async (ctx, { profileId }) => {
+    return await ctx.db
+      .query("tasks")
+      .withIndex("by_profile", (q) => q.eq("profileId", profileId))
+      .collect();
   },
 });
 
@@ -100,6 +111,7 @@ export const claimNext = mutation({
 
       // API tasks still create a sessions row (channel api) — one audit trail.
       const channel = API_TASK_TYPES.includes(task.type) ? ("api" as const) : ("browser" as const);
+      const strategy = await getActiveStrategy(ctx, profile.cohortTag);
       const sessionId = await ctx.db.insert("sessions", {
         profileId: profile._id,
         taskId: task._id,
@@ -107,6 +119,7 @@ export const claimNext = mutation({
         channel,
         status: "running",
         startedAt: now,
+        strategyVersionId: strategy?._id,
       });
       await ctx.db.patch(task._id, {
         status: "claimed",
@@ -122,7 +135,7 @@ export const claimNext = mutation({
         ts: now,
         channel,
         data: { taskType: task.type },
-        ctx: {},
+        ctx: { strategyVersionId: strategy?._id },
       });
 
       const [claimedTask, persona, launchConfig, proxyBinding, currentSnapshot] =
@@ -142,6 +155,7 @@ export const claimNext = mutation({
         proxyBinding,
         currentSnapshot,
         sessionId,
+        strategyVersionId: strategy?._id ?? null,
       };
     }
     return null;

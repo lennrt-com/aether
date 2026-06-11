@@ -17,4 +17,11 @@ crons.daily(
   {},
 );
 
+crons.interval(
+  "persona-driven scheduler",
+  { minutes: 30 },
+  internal.scheduler.cronRun,
+  {},
+);
+
 export default crons;

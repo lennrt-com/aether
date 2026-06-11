@@ -23,6 +23,7 @@ export interface RunnerBundle {
   proxyBinding: Doc<"proxyBindings"> | null;
   currentSnapshot: Doc<"profileSnapshots"> | null;
   sessionId: Id<"sessions">;
+  strategyVersionId: Id<"strategyVersions"> | null;
 }
 
 const raw = process.argv[2];
@@ -48,6 +49,7 @@ const emit = createEmitter({
   ctx: {
     launchConfigHash: bundle.launchConfig?.hash,
     personaVersion: bundle.persona?.version,
+    strategyVersionId: bundle.strategyVersionId ?? undefined,
     model: DEFAULT_MODEL,
     stagehandVersion,
   },

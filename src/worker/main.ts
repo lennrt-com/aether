@@ -52,7 +52,10 @@ async function runApiTask(bundle: ClaimBundle): Promise<void> {
     sessionId: bundle.sessionId,
     taskId: task._id,
     channel: "api",
-    ctx: { personaVersion: bundle.persona?.version ?? undefined },
+    ctx: {
+      personaVersion: bundle.persona?.version ?? undefined,
+      strategyVersionId: bundle.strategyVersionId ?? undefined,
+    },
   });
   const actionId = randomUUID();
   try {

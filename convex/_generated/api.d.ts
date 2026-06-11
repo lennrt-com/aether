@@ -10,9 +10,12 @@
 
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
+import type * as launchConfigs from "../launchConfigs.js";
 import type * as lib_guards from "../lib/guards.js";
+import type * as personas from "../personas.js";
 import type * as ping from "../ping.js";
 import type * as profiles from "../profiles.js";
+import type * as proxies from "../proxies.js";
 import type * as snapshots from "../snapshots.js";
 import type * as tasks from "../tasks.js";
 import type * as workers from "../workers.js";
@@ -26,9 +29,12 @@ import type {
 declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   events: typeof events;
+  launchConfigs: typeof launchConfigs;
   "lib/guards": typeof lib_guards;
+  personas: typeof personas;
   ping: typeof ping;
   profiles: typeof profiles;
+  proxies: typeof proxies;
   snapshots: typeof snapshots;
   tasks: typeof tasks;
   workers: typeof workers;

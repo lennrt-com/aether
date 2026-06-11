@@ -9,7 +9,9 @@
     "worker": "tsx src/worker/main.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.80",
     "@browserbasehq/stagehand": "^3.0.0",
+    "ai": "^6.0.201",
     "convex": "^1.41.0",
     "dotenv": "^16.4.7",
     "proxy-chain": "^3.0.0",

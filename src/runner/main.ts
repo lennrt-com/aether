@@ -11,6 +11,8 @@ import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { createEmitter } from "./emit.js";
 import { classifyPage } from "./classify.js";
 import { launchSession, DEFAULT_MODEL } from "./session.js";
+import { runSignup, runLogin } from "./signup.js";
+import { buildBehavior, type PersonaLike } from "./behaviors.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
@@ -103,7 +105,7 @@ await convex.mutation(api.tasks.setSessionEgress, {
 
 let exitCode = 0;
 try {
-  const BROWSER_TASK_TYPES = ["browse", "warmup_feed", "engage_post"];
+  const BROWSER_TASK_TYPES = ["browse", "signup", "login", "warmup_feed", "engage_post"];
   if (!BROWSER_TASK_TYPES.includes(task.type)) {
     throw new Error(`unsupported task type: ${task.type}`);
   }
@@ -113,66 +115,110 @@ try {
     evaluate?: string;
     maxSteps?: number;
   };
-  const url = payload.url ?? process.env.START_URL ?? "https://example.com";
-  const maxSteps = payload.maxSteps ?? Number(process.env.MAX_STEPS ?? 15);
 
-  const actionId = randomUUID();
-  await emit(
-    "ActionStarted",
-    { url, instruction: payload.instruction ?? null, egressIp: session.egressIp },
-    actionId,
-  );
-  try {
-    const page = session.stagehand.context.activePage();
-    if (!page) throw new Error("no active page after launch");
-    await page.goto(url, { waitUntil: "load" });
-    await classifyPage(session.stagehand, emit, actionId);
-
-    let evalResult: unknown;
-    if (payload.evaluate) {
-      evalResult = await page.evaluate(payload.evaluate);
-      await emit("ActionSucceeded", { evaluate: payload.evaluate, evalResult }, `${actionId}:eval`);
+  if (task.type === "signup" || task.type === "login") {
+    // Account flows own their full action lifecycle (events, creds, transitions).
+    const flowDeps = {
+      stagehand: session.stagehand,
+      convex,
+      workerKey,
+      emit,
+      profile: bundle.profile,
+      persona: bundle.persona,
+      maxSteps: payload.maxSteps,
+    };
+    try {
+      const ok = task.type === "signup" ? await runSignup(flowDeps) : await runLogin(flowDeps);
+      if (!ok) exitCode = 1;
+    } catch (err) {
+      await emit("ActionFailed", { error: String(err) }, randomUUID());
+      exitCode = 1;
     }
+  } else {
+    // browse / warmup_feed / engage_post — fall back to persona-driven LinkedIn
+    // behaviors when the payload carries no explicit instruction.
+    const personaLike = (bundle.persona?.data ?? null) as PersonaLike | null;
+    const behavior = payload.instruction ? null : buildBehavior(task.type, personaLike);
+    const url = payload.url ?? behavior?.url ?? process.env.START_URL ?? "https://example.com";
+    const instruction = payload.instruction ?? behavior?.instruction;
+    const maxSteps =
+      payload.maxSteps ?? behavior?.maxSteps ?? Number(process.env.MAX_STEPS ?? 15);
 
-    if (!payload.instruction) {
-      await emit("ActionSucceeded", { message: "browse completed (no instruction)", evalResult }, actionId);
-    } else {
-      const agent = session.stagehand.agent({ mode: "hybrid" });
-      const result = await agent.execute({
-        instruction: payload.instruction,
-        maxSteps,
-      });
-      // Per-step audit events from the agent trace (callbacks are experimental in v3).
-      for (let i = 0; i < result.actions.length; i++) {
-        const action = result.actions[i];
+    const actionId = randomUUID();
+    await emit(
+      "ActionStarted",
+      { url, instruction: instruction ?? null, egressIp: session.egressIp },
+      actionId,
+    );
+    try {
+      const page = session.stagehand.context.activePage();
+      if (!page) throw new Error("no active page after launch");
+      await page.goto(url, { waitUntil: "load" });
+      const pageState = await classifyPage(session.stagehand, emit, actionId);
+
+      if (pageState === "login" && (task.type === "warmup_feed" || task.type === "engage_post")) {
+        // Session expired: surface the anomaly, queue a login, fail this task.
+        await emit("AnomalyObserved", { reason: "login_wall", taskType: task.type }, actionId);
+        await convex.mutation(api.tasks.enqueue, {
+          workerKey,
+          profileId: bundle.profile._id,
+          type: "login",
+          payload: { reason: `login wall during ${task.type}` },
+        });
         await emit(
-          "ActionSucceeded",
-          {
-            step: i + 1,
-            actionType: action.type,
-            reasoning: typeof action.reasoning === "string" ? action.reasoning.slice(0, 500) : undefined,
-            pageUrl: action.pageUrl,
-            timeMs: action.timeMs,
-          },
-          `${actionId}:step:${i + 1}`,
-        );
-      }
-      await classifyPage(session.stagehand, emit, actionId);
-      if (result.success) {
-        await emit(
-          "ActionSucceeded",
-          { message: result.message, completed: result.completed, steps: result.actions.length },
+          "ActionFailed",
+          { error: "session not authenticated (login wall) — login task enqueued" },
           actionId,
         );
-      } else {
-        await emit("ActionFailed", { message: result.message }, actionId);
         exitCode = 1;
+      } else {
+        let evalResult: unknown;
+        if (payload.evaluate) {
+          evalResult = await page.evaluate(payload.evaluate);
+          await emit("ActionSucceeded", { evaluate: payload.evaluate, evalResult }, `${actionId}:eval`);
+        }
+
+        if (!instruction) {
+          await emit("ActionSucceeded", { message: "browse completed (no instruction)", evalResult }, actionId);
+        } else {
+          const agent = session.stagehand.agent({ mode: "hybrid" });
+          const result = await agent.execute({
+            instruction,
+            maxSteps,
+          });
+          // Per-step audit events from the agent trace (callbacks are experimental in v3).
+          for (let i = 0; i < result.actions.length; i++) {
+            const action = result.actions[i];
+            await emit(
+              "ActionSucceeded",
+              {
+                step: i + 1,
+                actionType: action.type,
+                reasoning: typeof action.reasoning === "string" ? action.reasoning.slice(0, 500) : undefined,
+                pageUrl: action.pageUrl,
+                timeMs: action.timeMs,
+              },
+              `${actionId}:step:${i + 1}`,
+            );
+          }
+          await classifyPage(session.stagehand, emit, actionId);
+          if (result.success) {
+            await emit(
+              "ActionSucceeded",
+              { message: result.message, completed: result.completed, steps: result.actions.length },
+              actionId,
+            );
+          } else {
+            await emit("ActionFailed", { message: result.message }, actionId);
+            exitCode = 1;
+          }
+        }
       }
+    } catch (err) {
+      // Recorded via events, then fails the task through the exit code.
+      await emit("ActionFailed", { error: String(err) }, actionId);
+      exitCode = 1;
     }
-  } catch (err) {
-    // Recorded via events, then fails the task through the exit code.
-    await emit("ActionFailed", { error: String(err) }, actionId);
-    exitCode = 1;
   }
 } finally {
   await session.close();

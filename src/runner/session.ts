@@ -44,6 +44,9 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
   const stagehand = new Stagehand({
     env: "LOCAL",
     model: cfg.model ?? DEFAULT_MODEL,
+    // Required for agent custom tools + output schema (signup email tools).
+    experimental: true,
+    disableAPI: true,
     localBrowserLaunchOptions: {
       userDataDir: cfg.userDataDir,
       ...(cfg.executablePath ? { executablePath: cfg.executablePath } : {}),

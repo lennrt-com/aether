@@ -24,6 +24,8 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const TASK_TYPES = [
   "browse",
+  "signup",
+  "login",
   "warmup_feed",
   "engage_post",
   "send_message",
@@ -55,6 +57,8 @@ export const EVENT_TYPES = [
   "PolicyDecision",
   "MessageReceived",
   "InvitationAccepted",
+  "AccountCreated",
+  "LoginSucceeded",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

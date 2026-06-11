@@ -5,13 +5,18 @@
   "engines": {
     "node": ">=20"
   },
+  "bin": {
+    "bless": "src/cli/bless.js"
+  },
   "scripts": {
-    "worker": "tsx src/worker/main.ts"
+    "worker": "tsx src/worker/main.ts",
+    "cli": "tsx src/cli/index.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.80",
     "@browserbasehq/stagehand": "^3.0.0",
     "ai": "^6.0.201",
+    "commander": "^15.0.0",
     "convex": "^1.41.0",
     "dotenv": "^16.4.7",
     "proxy-chain": "^3.0.0",

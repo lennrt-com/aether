@@ -54,6 +54,15 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("unhealthy"), v.literal("retired")),
   }).index("by_profile", ["profileId"]),
 
+  accountCredentials: defineTable({
+    profileId: v.id("profiles"),
+    email: v.string(),
+    password: v.string(),
+    emailProvider: v.string(),            // "smtp.dev" for v1
+    mailboxId: v.optional(v.string()),    // smtp.dev account id (inbox re-derivable via API)
+    status: v.union(v.literal("active"), v.literal("invalid")),
+  }).index("by_profile", ["profileId"]),
+
   tasks: defineTable({
     profileId: v.id("profiles"),
     type: v.string(),

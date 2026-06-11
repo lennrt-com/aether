@@ -13,6 +13,7 @@ const EVENT_TYPES = [
   "ProfileStateChanged", "ProfileProvisioned", "ProxyChanged",
   "FingerprintLoaded", "SnapshotCommitted",
   "PolicyDecision", "MessageReceived", "InvitationAccepted",
+  "AccountCreated", "LoginSucceeded",
 ] as const;
 
 const eventCtx = v.object({

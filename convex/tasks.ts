@@ -13,6 +13,8 @@ const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 30 * 60 * 1000;
 const CLAIMABLE_STATUSES = ["warming", "active", "cooldown"];
+// signup/login are the only tasks runnable before the profile leaves provisioning.
+const PROVISIONING_TASK_TYPES = ["signup", "login"];
 // Mirror of src/channels/router.ts (Convex can't import from src/).
 const API_TASK_TYPES = ["send_message", "send_invitation", "fetch_profile"];
 
@@ -82,6 +84,23 @@ export const cancel = mutation({
   },
 });
 
+// Queue depth by status (CLI `status` view).
+export const stats = query({
+  args: {},
+  handler: async (ctx) => {
+    const statuses = ["pending", "claimed", "done", "failed", "cancelled"] as const;
+    const counts: Record<string, number> = {};
+    for (const status of statuses) {
+      const rows = await ctx.db
+        .query("tasks")
+        .withIndex("by_status_dueAt", (q) => q.eq("status", status))
+        .collect();
+      counts[status] = rows.length;
+    }
+    return counts;
+  },
+});
+
 export const sessionForTask = query({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, { taskId }) => {
@@ -107,7 +126,10 @@ export const claimNext = mutation({
       const profile = await ctx.db.get(task.profileId);
       if (!profile) continue;
       if (profile.activeSessionId !== undefined) continue;
-      if (!CLAIMABLE_STATUSES.includes(profile.status)) continue;
+      const claimable =
+        CLAIMABLE_STATUSES.includes(profile.status) ||
+        (profile.status === "provisioning" && PROVISIONING_TASK_TYPES.includes(task.type));
+      if (!claimable) continue;
 
       // API tasks still create a sessions row (channel api) — one audit trail.
       const channel = API_TASK_TYPES.includes(task.type) ? ("api" as const) : ("browser" as const);

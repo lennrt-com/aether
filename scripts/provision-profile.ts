@@ -1,6 +1,7 @@
 // CLI: provision a complete identity bundle in one run.
 // pnpm tsx scripts/provision-profile.ts --name jane --geo DE --tz Europe/Berlin \
 //   --proxy-server host:port [--proxy-user u] [--proxy-pass p] [--role "sales lead"]
+//   [--stay-provisioning]  (leave in provisioning for a follow-up signup task)
 import "../src/shared/env.js";
 import { ConvexHttpClient } from "convex/browser";
 import { parseArgs } from "node:util";
@@ -17,6 +18,7 @@ const { values: args } = parseArgs({
     "proxy-user": { type: "string" },
     "proxy-pass": { type: "string" },
     role: { type: "string", default: "experienced professional" },
+    "stay-provisioning": { type: "boolean", default: false },
   },
 });
 
@@ -75,12 +77,16 @@ const proxyBindingId = await client.mutation(api.proxies.create, {
 await client.mutation(api.proxies.attachToProfile, { workerKey, profileId, proxyBindingId });
 console.log(`proxy attached: ${proxyBindingId} (${proxyServer}, ${geo})`);
 
-await client.mutation(api.profiles.transition, {
-  workerKey,
-  profileId,
-  to: "warming",
-  reason: "provisioned",
-});
+if (args["stay-provisioning"]) {
+  console.log("staying in provisioning (run a signup task to promote to warming)");
+} else {
+  await client.mutation(api.profiles.transition, {
+    workerKey,
+    profileId,
+    to: "warming",
+    reason: "provisioned",
+  });
+}
 
 const profile = await client.query(api.profiles.get, { profileId });
 console.log("\nprovisioned bundle:");

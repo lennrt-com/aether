@@ -1,0 +1,24 @@
+{
+  "name": "blessgtm-hybrid-agent",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@browserbasehq/stagehand": "^3.0.0",
+    "convex": "^1.41.0",
+    "dotenv": "^16.4.7",
+    "proxy-chain": "^3.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

@@ -3,8 +3,13 @@
 import "../shared/env.js";
 import { ConvexHttpClient } from "convex/browser";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { api } from "../../convex/_generated/api.js";
 import type { FunctionReturnType } from "convex/server";
+import { CHANNEL } from "../channels/router.js";
+import { createUnipileClient, UnipileApiError } from "../channels/unipile.js";
+import { createEmitter } from "../runner/emit.js";
+import type { TaskType } from "../shared/types.js";
 
 type ClaimBundle = NonNullable<FunctionReturnType<typeof api.tasks.claimNext>>;
 
@@ -35,6 +40,65 @@ setInterval(() => {
 }, WORKER_HEARTBEAT_MS);
 
 let activeSessions = 0;
+
+// API-channel tasks run in-process — no subprocess, no browser.
+async function runApiTask(bundle: ClaimBundle): Promise<void> {
+  const task = bundle.task;
+  if (!task) return;
+  const emit = createEmitter({
+    convex,
+    workerKey: key,
+    profileId: task.profileId,
+    sessionId: bundle.sessionId,
+    taskId: task._id,
+    channel: "api",
+    ctx: { personaVersion: bundle.persona?.version ?? undefined },
+  });
+  const actionId = randomUUID();
+  try {
+    const accountId = bundle.profile.unipileAccountId;
+    if (!accountId) throw new Error("profile has no unipileAccountId");
+    const unipile = createUnipileClient();
+    const payload = (task.payload ?? {}) as { userId?: string; text?: string; message?: string };
+    if (!payload.userId) throw new Error(`${task.type} payload requires userId`);
+
+    await emit("ActionStarted", { taskType: task.type, userId: payload.userId }, actionId);
+    let data: Record<string, unknown>;
+    switch (task.type) {
+      case "fetch_profile": {
+        const profile = await unipile.getProfile(accountId, payload.userId);
+        data = {
+          userId: profile.id,
+          displayName: profile.display_name,
+          publicIdentifier: profile.public_identifier ?? null,
+          profileUrl: profile.profile_url ?? null,
+        };
+        break;
+      }
+      case "send_message": {
+        if (!payload.text) throw new Error("send_message payload requires text");
+        const res = await unipile.sendMessage(accountId, payload.userId, payload.text);
+        data = { chatId: res.chat_id, messageId: res.message_id };
+        break;
+      }
+      case "send_invitation": {
+        const res = await unipile.sendInvitation(accountId, payload.userId, payload.message);
+        data = { requestId: res.id };
+        break;
+      }
+      default:
+        throw new Error(`unsupported api task type: ${task.type}`);
+    }
+    await emit("ActionSucceeded", data, actionId);
+    await convex.mutation(api.tasks.complete, { workerKey: key, taskId: task._id, outcome: "ok" });
+    console.log(`[worker] api task ${task._id} (${task.type}) done`);
+  } catch (err) {
+    const httpStatus = err instanceof UnipileApiError ? err.status : undefined;
+    await emit("ActionFailed", { error: String(err), httpStatus }, actionId);
+    await convex.mutation(api.tasks.fail, { workerKey: key, taskId: task._id, error: String(err) });
+    console.log(`[worker] api task ${task._id} failed: ${String(err)}`);
+  }
+}
 
 function runTask(bundle: ClaimBundle): Promise<void> {
   return new Promise((resolve) => {
@@ -96,7 +160,9 @@ for (;;) {
       });
       if (bundle) {
         activeSessions += 1;
-        void runTask(bundle).finally(() => {
+        const channel = bundle.task ? (CHANNEL[bundle.task.type as TaskType] ?? "browser") : "browser";
+        const execution = channel === "api" ? runApiTask(bundle) : runTask(bundle);
+        void execution.finally(() => {
           activeSessions -= 1;
         });
         continue; // immediately try to claim more if capacity remains

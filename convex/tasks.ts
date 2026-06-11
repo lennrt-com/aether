@@ -12,6 +12,8 @@ const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 30 * 60 * 1000;
 const CLAIMABLE_STATUSES = ["warming", "active", "cooldown"];
+// Mirror of src/channels/router.ts (Convex can't import from src/).
+const API_TASK_TYPES = ["send_message", "send_invitation", "fetch_profile"];
 
 function leaseMs(): number {
   const override = process.env.LEASE_MS;
@@ -96,11 +98,13 @@ export const claimNext = mutation({
       if (profile.activeSessionId !== undefined) continue;
       if (!CLAIMABLE_STATUSES.includes(profile.status)) continue;
 
+      // API tasks still create a sessions row (channel api) — one audit trail.
+      const channel = API_TASK_TYPES.includes(task.type) ? ("api" as const) : ("browser" as const);
       const sessionId = await ctx.db.insert("sessions", {
         profileId: profile._id,
         taskId: task._id,
         workerId,
-        channel: "browser",
+        channel,
         status: "running",
         startedAt: now,
       });
@@ -116,7 +120,7 @@ export const claimNext = mutation({
         taskId: task._id,
         type: "SessionStarted",
         ts: now,
-        channel: "browser",
+        channel,
         data: { taskType: task.type },
         ctx: {},
       });

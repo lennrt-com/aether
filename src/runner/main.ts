@@ -101,7 +101,10 @@ await convex.mutation(api.tasks.setSessionEgress, {
 
 let exitCode = 0;
 try {
-  if (task.type !== "browse") throw new Error(`unsupported task type: ${task.type}`);
+  const BROWSER_TASK_TYPES = ["browse", "warmup_feed", "engage_post"];
+  if (!BROWSER_TASK_TYPES.includes(task.type)) {
+    throw new Error(`unsupported task type: ${task.type}`);
+  }
   const payload = (task.payload ?? {}) as {
     url?: string;
     instruction?: string;

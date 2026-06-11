@@ -11,6 +11,7 @@
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as health from "../health.js";
+import type * as http from "../http.js";
 import type * as launchConfigs from "../launchConfigs.js";
 import type * as lib_guards from "../lib/guards.js";
 import type * as personas from "../personas.js";
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   events: typeof events;
   health: typeof health;
+  http: typeof http;
   launchConfigs: typeof launchConfigs;
   "lib/guards": typeof lib_guards;
   personas: typeof personas;

@@ -69,6 +69,28 @@ export async function applyTransition(
   });
 }
 
+// Unipile account connection is manual for v1 (hosted auth) — the resulting
+// accountId is stored via CLI.
+export const setUnipileAccount = mutation({
+  args: {
+    workerKey: v.string(),
+    profileId: v.id("profiles"),
+    unipileAccountId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertWorkerKey(args.workerKey);
+    await ctx.db.patch(args.profileId, { unipileAccountId: args.unipileAccountId });
+    await appendEvent(ctx, {
+      profileId: args.profileId,
+      type: "ProfileProvisioned",
+      ts: Date.now(),
+      channel: "system",
+      data: { component: "unipileAccount", unipileAccountId: args.unipileAccountId },
+      ctx: {},
+    });
+  },
+});
+
 export const transition = mutation({
   args: {
     workerKey: v.string(),

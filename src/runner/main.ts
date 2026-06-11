@@ -10,6 +10,9 @@ import { api } from "../../convex/_generated/api.js";
 import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { createEmitter } from "./emit.js";
 import { launchSession, DEFAULT_MODEL } from "./session.js";
+import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
+import { hydrateProfile } from "../profile-store/hydrate.js";
+import { snapshotProfile } from "../profile-store/snapshot.js";
 
 export interface RunnerBundle {
   task: Doc<"tasks"> | null;
@@ -53,6 +56,23 @@ const profilesDir = process.env.PROFILES_DIR ?? "./.profiles";
 const userDataDir = path.resolve(profilesDir, bundle.profile._id);
 fs.mkdirSync(userDataDir, { recursive: true });
 
+const blobStore = createConvexBlobStore(convex, workerKey);
+const hydrateOutcome = await hydrateProfile({
+  profileDir: userDataDir,
+  blobStore,
+  latest: bundle.currentSnapshot
+    ? {
+        storageId: bundle.currentSnapshot.storageId,
+        contentHash: bundle.currentSnapshot.contentHash,
+      }
+    : null,
+});
+await emit("FingerprintLoaded", {
+  hydrate: hydrateOutcome,
+  launchConfigHash: bundle.launchConfig?.hash ?? null,
+  snapshotHash: bundle.currentSnapshot?.contentHash ?? null,
+});
+
 const session = await launchSession({
   userDataDir,
   headless: process.env.HEADLESS === "true",
@@ -67,6 +87,8 @@ const session = await launchSession({
         password: bundle.proxyBinding.password,
       }
     : undefined,
+  // Keeps profiles portable across Linux hosts; harmless on Windows dev.
+  args: ["--password-store=basic"],
 });
 
 await convex.mutation(api.tasks.setSessionEgress, {
@@ -82,44 +104,62 @@ try {
   const payload = (task.payload ?? {}) as {
     url?: string;
     instruction?: string;
+    evaluate?: string;
     maxSteps?: number;
   };
   const url = payload.url ?? process.env.START_URL ?? "https://example.com";
-  const instruction = payload.instruction ?? "Summarize the page.";
   const maxSteps = payload.maxSteps ?? Number(process.env.MAX_STEPS ?? 15);
 
   const actionId = randomUUID();
-  await emit("ActionStarted", { url, instruction, egressIp: session.egressIp }, actionId);
+  await emit(
+    "ActionStarted",
+    { url, instruction: payload.instruction ?? null, egressIp: session.egressIp },
+    actionId,
+  );
   try {
-    const agent = session.stagehand.agent({ mode: "hybrid" });
-    const result = await agent.execute({
-      instruction: `Go to ${url} first. Then: ${instruction}`,
-      maxSteps,
-    });
-    // Per-step audit events from the agent trace (callbacks are experimental in v3).
-    for (let i = 0; i < result.actions.length; i++) {
-      const action = result.actions[i];
-      await emit(
-        "ActionSucceeded",
-        {
-          step: i + 1,
-          actionType: action.type,
-          reasoning: typeof action.reasoning === "string" ? action.reasoning.slice(0, 500) : undefined,
-          pageUrl: action.pageUrl,
-          timeMs: action.timeMs,
-        },
-        `${actionId}:step:${i + 1}`,
-      );
+    const page = session.stagehand.context.activePage();
+    if (!page) throw new Error("no active page after launch");
+    await page.goto(url, { waitUntil: "load" });
+
+    let evalResult: unknown;
+    if (payload.evaluate) {
+      evalResult = await page.evaluate(payload.evaluate);
+      await emit("ActionSucceeded", { evaluate: payload.evaluate, evalResult }, `${actionId}:eval`);
     }
-    if (result.success) {
-      await emit(
-        "ActionSucceeded",
-        { message: result.message, completed: result.completed, steps: result.actions.length },
-        actionId,
-      );
+
+    if (!payload.instruction) {
+      await emit("ActionSucceeded", { message: "browse completed (no instruction)", evalResult }, actionId);
     } else {
-      await emit("ActionFailed", { message: result.message }, actionId);
-      exitCode = 1;
+      const agent = session.stagehand.agent({ mode: "hybrid" });
+      const result = await agent.execute({
+        instruction: payload.instruction,
+        maxSteps,
+      });
+      // Per-step audit events from the agent trace (callbacks are experimental in v3).
+      for (let i = 0; i < result.actions.length; i++) {
+        const action = result.actions[i];
+        await emit(
+          "ActionSucceeded",
+          {
+            step: i + 1,
+            actionType: action.type,
+            reasoning: typeof action.reasoning === "string" ? action.reasoning.slice(0, 500) : undefined,
+            pageUrl: action.pageUrl,
+            timeMs: action.timeMs,
+          },
+          `${actionId}:step:${i + 1}`,
+        );
+      }
+      if (result.success) {
+        await emit(
+          "ActionSucceeded",
+          { message: result.message, completed: result.completed, steps: result.actions.length },
+          actionId,
+        );
+      } else {
+        await emit("ActionFailed", { message: result.message }, actionId);
+        exitCode = 1;
+      }
     }
   } catch (err) {
     // Recorded via events, then fails the task through the exit code.
@@ -129,6 +169,22 @@ try {
 } finally {
   await session.close();
 }
+
+// Archive only after Chrome is fully closed.
+const snapshot = await snapshotProfile({
+  profileDir: userDataDir,
+  blobStore,
+  convex,
+  workerKey,
+  profileId: bundle.profile._id,
+  sessionId: bundle.sessionId,
+  chromeVersion: bundle.profile.chromeVersion,
+});
+await emit("SnapshotCommitted", {
+  snapshotId: snapshot.snapshotId,
+  contentHash: snapshot.contentHash,
+  sizeBytes: snapshot.sizeBytes,
+});
 
 process.exit(exitCode);
 

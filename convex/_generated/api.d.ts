@@ -13,6 +13,7 @@ import type * as events from "../events.js";
 import type * as lib_guards from "../lib/guards.js";
 import type * as ping from "../ping.js";
 import type * as profiles from "../profiles.js";
+import type * as snapshots from "../snapshots.js";
 import type * as tasks from "../tasks.js";
 import type * as workers from "../workers.js";
 
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   "lib/guards": typeof lib_guards;
   ping: typeof ping;
   profiles: typeof profiles;
+  snapshots: typeof snapshots;
   tasks: typeof tasks;
   workers: typeof workers;
 }>;

@@ -1,5 +1,7 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import { fetch as undiciFetch, ProxyAgent } from "undici";
+import fs from "node:fs";
+import path from "node:path";
 import { startProxyRelay, type ProxyRelay } from "./proxy.js";
 
 export const DEFAULT_MODEL = "google/gemini-3-flash-preview";
@@ -65,9 +67,38 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
     relay,
     egressIp,
     close: async () => {
-      // Close Stagehand fully first — profile files are locked while Chrome runs.
+      // Graceful CDP Browser.close first: Stagehand's own cleanup force-kills
+      // Chrome, which loses unflushed cookies/localStorage. Failure here is
+      // fine — stagehand.close() below force-kills as fallback.
+      try {
+        await stagehand.context.conn.send("Browser.close");
+      } catch {
+        // connection may already be gone; fall through to force cleanup
+      }
+      await waitForChromeExit(cfg.userDataDir, 15_000);
       await stagehand.close();
       if (relay) await relay.close();
     },
   };
+}
+
+// chrome-launcher writes chrome.pid into the userDataDir.
+async function waitForChromeExit(userDataDir: string, timeoutMs: number): Promise<void> {
+  const pidFile = path.join(userDataDir, "chrome.pid");
+  let pid: number | null = null;
+  try {
+    pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+  } catch {
+    return;
+  }
+  if (!pid || Number.isNaN(pid)) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return; // process is gone
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
 }

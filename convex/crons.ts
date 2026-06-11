@@ -10,4 +10,11 @@ crons.interval(
   {},
 );
 
+crons.daily(
+  "snapshot retention",
+  { hourUTC: 3, minuteUTC: 30 },
+  internal.snapshots.applyRetention,
+  {},
+);
+
 export default crons;

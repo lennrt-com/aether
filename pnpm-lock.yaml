@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@browserbasehq/stagehand@3.5.0':
+    hash: 26cbb29301b484cd5d34543df98df31d665ac2df795f6b8150ba3a163ddf699d
+    path: patches/@browserbasehq__stagehand@3.5.0.patch
+
 importers:
 
   .:
@@ -13,10 +18,13 @@ importers:
         version: 3.0.80(zod@3.25.76)
       '@browserbasehq/stagehand':
         specifier: ^3.0.0
-        version: 3.5.0(zod@3.25.76)
+        version: 3.5.0(patch_hash=26cbb29301b484cd5d34543df98df31d665ac2df795f6b8150ba3a163ddf699d)(zod@3.25.76)
       ai:
         specifier: ^6.0.201
         version: 6.0.201(zod@3.25.76)
+      chrome-launcher:
+        specifier: ^1.2.1
+        version: 1.2.1
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -1661,7 +1669,7 @@ snapshots:
     transitivePeerDependencies:
       - encoding
 
-  '@browserbasehq/stagehand@3.5.0(zod@3.25.76)':
+  '@browserbasehq/stagehand@3.5.0(patch_hash=26cbb29301b484cd5d34543df98df31d665ac2df795f6b8150ba3a163ddf699d)(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 2.0.3
       '@anthropic-ai/sdk': 0.39.0
@@ -2084,7 +2092,6 @@ snapshots:
       lighthouse-logger: 2.0.2
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   colorette@2.0.20: {}
 
@@ -2233,8 +2240,7 @@ snapshots:
 
   escape-html@1.0.3: {}
 
-  escape-string-regexp@4.0.0:
-    optional: true
+  escape-string-regexp@4.0.0: {}
 
   etag@1.8.1: {}
 
@@ -2435,15 +2441,13 @@ snapshots:
 
   ipaddr.js@1.9.1: {}
 
-  is-docker@2.2.1:
-    optional: true
+  is-docker@2.2.1: {}
 
   is-promise@4.0.0: {}
 
   is-wsl@2.2.0:
     dependencies:
       is-docker: 2.2.1
-    optional: true
 
   isexe@2.0.0: {}
 
@@ -2478,12 +2482,10 @@ snapshots:
       marky: 1.3.0
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   long@5.3.2: {}
 
-  marky@1.3.0:
-    optional: true
+  marky@1.3.0: {}
 
   math-intrinsics@1.1.0: {}
 

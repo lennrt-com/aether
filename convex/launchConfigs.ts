@@ -13,6 +13,9 @@ export const create = mutation({
     windowWidth: v.number(),
     windowHeight: v.number(),
     chromeVersion: v.string(),
+    fingerprintSeed: v.optional(v.string()),
+    hardwareConcurrency: v.optional(v.number()),
+    deviceMemory: v.optional(v.number()),
     hash: v.string(),
   },
   handler: async (ctx, args) => {
@@ -25,6 +28,9 @@ export const create = mutation({
       windowWidth: args.windowWidth,
       windowHeight: args.windowHeight,
       chromeVersion: args.chromeVersion,
+      fingerprintSeed: args.fingerprintSeed,
+      hardwareConcurrency: args.hardwareConcurrency,
+      deviceMemory: args.deviceMemory,
       hash: args.hash,
     });
   },

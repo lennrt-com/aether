@@ -3,6 +3,12 @@ import { fetch as undiciFetch, ProxyAgent } from "undici";
 import fs from "node:fs";
 import path from "node:path";
 import { startProxyRelay, type ProxyRelay } from "./proxy.js";
+import {
+  buildHardenedChromeArgs,
+  resolveWebrtcIpPolicy,
+  seedWebrtcPreference,
+} from "./chromeFlags.js";
+import { applyFingerprint, type FingerprintConfig } from "./fingerprint/patch.js";
 
 export const DEFAULT_MODEL = "google/gemini-3-flash-preview";
 
@@ -15,6 +21,7 @@ export interface SessionConfig {
   proxy?: { server: string; username?: string; password?: string };
   args?: string[];
   model?: string;
+  fingerprint?: FingerprintConfig;
 }
 
 export interface RunningSession {
@@ -41,6 +48,29 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
   // Before any navigation: resolve the actual egress IP through the session proxy.
   const egressIp = await resolveEgressIp(relay?.server);
 
+  // Harden the launch: WebRTC must not leak the real IP past the proxy and the
+  // fingerprint must not scream automation. The WebRTC policy is applied two
+  // ways — seeded into the profile's Preferences (mirrors the WebRTC Network
+  // Limiter extension) and via command-line flags (what actually enforces it at
+  // runtime). See chromeFlags.ts for the rationale behind each flag.
+  const webrtcPolicy = resolveWebrtcIpPolicy();
+  seedWebrtcPreference(cfg.userDataDir, webrtcPolicy);
+  const hardenedArgs = buildHardenedChromeArgs(cfg.args ?? [], webrtcPolicy);
+
+  // Strip chrome-launcher's + Stagehand's testing-oriented default flags. Those
+  // defaults (background-networking / variations / feature disables) suppress
+  // Chrome's variations seed, which is what populates the native User-Agent
+  // Client Hints. With them, Fingerprint reads "Chromium-Based Browser" /
+  // "Not Available" and flips bot -> nodriver; without them Chrome reports its
+  // real "Chrome 148.0.0" identity and the bot flag clears — while CDP
+  // automation keeps working (confirmed via Fingerprint A/B testing).
+  //
+  // We re-add only vetted, page-invisible flags in buildHardenedChromeArgs()
+  // (CURATED_BASE_FLAGS). Escape hatch: LAUNCH_INHERIT_DEFAULTS=1 restores the
+  // old (flagged) behavior for debugging.
+  const ignoreDefaultArgs: boolean | undefined =
+    process.env.LAUNCH_INHERIT_DEFAULTS === "1" ? undefined : true;
+
   const stagehand = new Stagehand({
     env: "LOCAL",
     model: cfg.model ?? DEFAULT_MODEL,
@@ -54,12 +84,16 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
       ...(cfg.locale ? { locale: cfg.locale } : {}),
       ...(cfg.viewport ? { viewport: cfg.viewport } : {}),
       ...(relay ? { proxy: { server: relay.server } } : {}),
-      ...(cfg.args && cfg.args.length > 0 ? { args: cfg.args } : {}),
+      ...(hardenedArgs.length > 0 ? { args: hardenedArgs } : {}),
+      ...(ignoreDefaultArgs !== undefined ? { ignoreDefaultArgs } : {}),
     },
   });
 
   try {
     await stagehand.init();
+    if (cfg.fingerprint) {
+      await applyFingerprint(stagehand.context, cfg.fingerprint);
+    }
   } catch (err) {
     if (relay) await relay.close();
     throw err;

@@ -11,6 +11,7 @@
 import type * as credentials from "../credentials.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
+import type * as fingerprints from "../fingerprints.js";
 import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as launchConfigs from "../launchConfigs.js";
@@ -21,6 +22,7 @@ import type * as policies from "../policies.js";
 import type * as profiles from "../profiles.js";
 import type * as proxies from "../proxies.js";
 import type * as scheduler from "../scheduler.js";
+import type * as sessions from "../sessions.js";
 import type * as snapshots from "../snapshots.js";
 import type * as tasks from "../tasks.js";
 import type * as workers from "../workers.js";
@@ -35,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   credentials: typeof credentials;
   crons: typeof crons;
   events: typeof events;
+  fingerprints: typeof fingerprints;
   health: typeof health;
   http: typeof http;
   launchConfigs: typeof launchConfigs;
@@ -45,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   profiles: typeof profiles;
   proxies: typeof proxies;
   scheduler: typeof scheduler;
+  sessions: typeof sessions;
   snapshots: typeof snapshots;
   tasks: typeof tasks;
   workers: typeof workers;

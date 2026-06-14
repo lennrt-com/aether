@@ -30,6 +30,9 @@ export interface LaunchConfig {
   windowWidth: number;
   windowHeight: number;
   chromeVersion: string;
+  fingerprintSeed: string;
+  hardwareConcurrency: number;
+  deviceMemory: number;
   hash: string;
 }
 
@@ -47,6 +50,14 @@ export function generateLaunchConfig(input: {
   );
   const win = WINDOW_SIZES[seed % WINDOW_SIZES.length];
   const chromeVersion = process.env.PINNED_CHROME_VERSION ?? "unpinned";
+  const fingerprintSeed = createHash("sha256")
+    .update(`${input.profileKey}:fp`)
+    .digest("hex")
+    .slice(0, 16);
+  const hwPool = [4, 8, 8, 12, 16];
+  const memPool = [4, 8, 8];
+  const hardwareConcurrency = hwPool[seed % hwPool.length];
+  const deviceMemory = memPool[(seed >>> 8) % memPool.length];
 
   const fields = {
     timezone: input.timezone,
@@ -54,6 +65,9 @@ export function generateLaunchConfig(input: {
     windowWidth: win.width,
     windowHeight: win.height,
     chromeVersion,
+    fingerprintSeed,
+    hardwareConcurrency,
+    deviceMemory,
   };
   const hash = createHash("sha256").update(JSON.stringify(fields)).digest("hex");
   return { ...fields, hash };

@@ -41,8 +41,23 @@ export default defineSchema({
     windowWidth: v.number(),
     windowHeight: v.number(),
     chromeVersion: v.string(),
+    fingerprintSeed: v.optional(v.string()),
+    hardwareConcurrency: v.optional(v.number()),
+    deviceMemory: v.optional(v.number()),
     hash: v.string(),         // sha256 of the above, stamped into event ctx
   }).index("by_profile", ["profileId"]),
+
+  fingerprintObservations: defineTable({
+    profileId: v.id("profiles"),
+    visitorId: v.string(),
+    eventId: v.string(),
+    tampering: v.optional(v.boolean()),
+    vpn: v.optional(v.boolean()),
+    proxy: v.optional(v.boolean()),
+    ts: v.number(),
+  })
+    .index("by_visitorId", ["visitorId"])
+    .index("by_profile", ["profileId"]),
 
   proxyBindings: defineTable({
     profileId: v.id("profiles"),
@@ -79,8 +94,10 @@ export default defineSchema({
 
   sessions: defineTable({
     profileId: v.id("profiles"),
-    taskId: v.id("tasks"),
-    workerId: v.id("workers"),
+    // Optional: manual (hands-on) sessions have no task/worker behind them.
+    taskId: v.optional(v.id("tasks")),
+    workerId: v.optional(v.id("workers")),
+    kind: v.optional(v.union(v.literal("task"), v.literal("manual"))),
     channel: v.union(v.literal("browser"), v.literal("api")),
     status: v.union(v.literal("running"), v.literal("done"), v.literal("failed")),
     startedAt: v.number(),

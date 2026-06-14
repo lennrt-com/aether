@@ -76,6 +76,260 @@ program
     process.exitCode = await runScript("scripts/provision-profile.ts", args);
   });
 
+// ------------------------------------------------------------------- create
+program
+  .command("create")
+  .description("one-shot: provision a new identity and enqueue its LinkedIn signup task")
+  .option("--name <name>", "profile label (default: acct-<timestamp>)")
+  .option("--geo <geo>", "proxy/persona geo", process.env.DEFAULT_GEO ?? "DE")
+  .option("--tz <timezone>", "IANA timezone", process.env.DEFAULT_TZ ?? "Europe/Berlin")
+  .option("--role <role>", "persona role archetype", "experienced professional")
+  .option("--proxy-server <hostPort>", "defaults to PROXY_SERVER env")
+  .option("--proxy-user <user>", "defaults to PROXY_USERNAME env")
+  .option("--proxy-pass <pass>", "defaults to PROXY_PASSWORD env")
+  .option("--max-steps <n>", "signup agent step budget")
+  .option("--skip-preflight", "skip the proxy/fingerprint preflight checks before signup")
+  .action(async (opts) => {
+    const proxyServer = opts.proxyServer ?? process.env.PROXY_SERVER;
+    if (!proxyServer) {
+      throw new Error("no proxy: pass --proxy-server or set PROXY_SERVER in .env");
+    }
+    const now = new Date();
+    const stamp =
+      `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}` +
+      `-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+    const name = opts.name ?? `acct-${stamp}`;
+
+    const { client, workerKey } = convex();
+    const { provisionProfile } = await import("../identity/provision.js");
+    const { profileId, persona } = await provisionProfile(client, workerKey, {
+      name,
+      geo: opts.geo,
+      timezone: opts.tz,
+      role: opts.role,
+      proxy: {
+        server: proxyServer,
+        username: opts.proxyUser ?? process.env.PROXY_USERNAME,
+        password: opts.proxyPass ?? process.env.PROXY_PASSWORD,
+      },
+      stayProvisioning: true,
+    });
+
+    const taskId = await client.mutation(api.tasks.enqueue, {
+      workerKey,
+      profileId,
+      type: "signup",
+      payload: {
+        ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
+        ...(opts.skipPreflight ? { skipPreflight: true } : {}),
+      },
+    });
+    console.log(`\nsignup task enqueued: ${taskId}`);
+    console.log(`profile: ${profileId} (${name}, persona ${persona.fullName})`);
+
+    const workers = (await client.query(api.workers.list, {})) as Array<
+      Doc<"workers"> & { stale: boolean }
+    >;
+    const online = workers.filter((w) => w.status === "online" && !w.stale);
+    if (online.length === 0) {
+      console.log("\nWARNING: no worker online — start one with `pnpm cli worker` to run the signup");
+    } else {
+      console.log(`\nworker(s) online: ${online.map((w) => w.name).join(", ")} — signup starts within ~15s`);
+    }
+    console.log(`watch progress:  pnpm cli events ${profileId} --tail`);
+  });
+
+// ------------------------------------------------------------------- launch
+program
+  .command("launch [profileId]")
+  .description("open a profile in a manual (non-automated) browser for hands-on testing")
+  .option("--create", "provision a fresh profile first, then launch it")
+  .option("--name <name>", "profile label when creating (default: manual-<timestamp>)")
+  .option("--geo <geo>", "geo when creating", process.env.DEFAULT_GEO ?? "DE")
+  .option("--tz <timezone>", "timezone when creating", process.env.DEFAULT_TZ ?? "Europe/Berlin")
+  .option("--role <role>", "persona role when creating", "experienced professional")
+  .option("--proxy-server <hostPort>", "proxy (defaults to PROXY_SERVER env)")
+  .option("--proxy-user <user>", "defaults to PROXY_USERNAME env")
+  .option("--proxy-pass <pass>", "defaults to PROXY_PASSWORD env")
+  .option("--no-proxy", "launch/create without a proxy (direct connection)")
+  .option("--force", "release a stale active session on the profile before launching")
+  .option("--raw", "launch Chrome directly with NO Stagehand/CDP (true clean browser; fingerprint baseline)")
+  .option("--url <url>", "start URL (default: the fingerprint scanner)")
+  .action(async (profileIdArg, opts) => {
+    const { client, workerKey } = convex();
+    let profileId = profileIdArg as Id<"profiles"> | undefined;
+    let tz: string = process.env.TZ ?? "UTC";
+
+    if (opts.create) {
+      const now = new Date();
+      const stamp =
+        `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}` +
+        `-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+      const name = opts.name ?? `manual-${stamp}`;
+
+      // commander sets opts.proxy=false for --no-proxy, true otherwise.
+      const proxyServer = opts.proxyServer ?? process.env.PROXY_SERVER;
+      const useProxy = opts.proxy !== false && Boolean(proxyServer);
+      if (opts.proxy !== false && !proxyServer) {
+        console.log("no proxy configured (pass --proxy-server / PROXY_SERVER, or --no-proxy) — launching direct");
+      }
+
+      const { provisionProfile } = await import("../identity/provision.js");
+      const { profileId: newId, persona } = await provisionProfile(client, workerKey, {
+        name,
+        geo: opts.geo,
+        timezone: opts.tz,
+        role: opts.role,
+        proxy: useProxy
+          ? {
+              server: proxyServer as string,
+              username: opts.proxyUser ?? process.env.PROXY_USERNAME,
+              password: opts.proxyPass ?? process.env.PROXY_PASSWORD,
+            }
+          : undefined,
+        stayProvisioning: true,
+      });
+      profileId = newId;
+      tz = opts.tz;
+      console.log(`\ncreated profile ${profileId} (${name}, persona ${persona.fullName})`);
+    } else {
+      if (!profileId) {
+        throw new Error("provide a profileId, or use --create to provision a new one");
+      }
+      const profile = (await client.query(api.profiles.get, {
+        profileId,
+      })) as Doc<"profiles"> | null;
+      if (!profile) throw new Error(`profile not found: ${profileId}`);
+      if (profile.launchConfigId) {
+        const lc = (await client.query(api.launchConfigs.get, {
+          launchConfigId: profile.launchConfigId,
+        })) as Doc<"launchConfigs"> | null;
+        if (lc?.timezone) tz = lc.timezone;
+      }
+    }
+
+    if (opts.force && profileId) {
+      const res = (await client.mutation(api.sessions.forceRelease, {
+        workerKey,
+        profileId,
+      })) as { released: boolean };
+      if (res.released) console.log(`released stale active session on ${profileId}`);
+    }
+
+    const runner = opts.raw ? "src/runner/manualRaw.ts" : "src/runner/manual.ts";
+    const args = ["--import", "tsx", runner, profileId as string];
+    if (opts.url) args.push("--url", opts.url);
+
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn("node", args, {
+        stdio: "inherit",
+        env: { ...process.env, TZ: tz },
+      });
+      child.on("exit", (c) => resolve(c ?? 1));
+      child.on("error", (err) => {
+        console.error(String(err));
+        resolve(1);
+      });
+    });
+    process.exitCode = code;
+  });
+
+// --------------------------------------------------------------- agent-test
+program
+  .command("agent-test [profileId]")
+  .description("launch a profile and turn a live Stagehand agent loose on the page (default: grab the fingerprint visitorId)")
+  .option("--create", "provision a fresh profile first, then run the agent on it")
+  .option("--name <name>", "profile label when creating (default: agent-<timestamp>)")
+  .option("--geo <geo>", "geo when creating", process.env.DEFAULT_GEO ?? "DE")
+  .option("--tz <timezone>", "timezone when creating", process.env.DEFAULT_TZ ?? "Europe/Berlin")
+  .option("--role <role>", "persona role when creating", "experienced professional")
+  .option("--proxy-server <hostPort>", "proxy (defaults to PROXY_SERVER env)")
+  .option("--proxy-user <user>", "defaults to PROXY_USERNAME env")
+  .option("--proxy-pass <pass>", "defaults to PROXY_PASSWORD env")
+  .option("--no-proxy", "launch/create without a proxy (direct connection)")
+  .option("--force", "release a stale active session on the profile before launching")
+  .option("--url <url>", "start URL (default: the fingerprint scanner)")
+  .option("--instruction <text>", "override the agent instruction")
+  .option("--max-steps <n>", "agent step budget (default: 15)")
+  .action(async (profileIdArg, opts) => {
+    const { client, workerKey } = convex();
+    let profileId = profileIdArg as Id<"profiles"> | undefined;
+    let tz: string = process.env.TZ ?? "UTC";
+
+    if (opts.create) {
+      const now = new Date();
+      const stamp =
+        `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}` +
+        `-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+      const name = opts.name ?? `agent-${stamp}`;
+
+      const proxyServer = opts.proxyServer ?? process.env.PROXY_SERVER;
+      const useProxy = opts.proxy !== false && Boolean(proxyServer);
+      if (opts.proxy !== false && !proxyServer) {
+        console.log("no proxy configured (pass --proxy-server / PROXY_SERVER, or --no-proxy) — launching direct");
+      }
+
+      const { provisionProfile } = await import("../identity/provision.js");
+      const { profileId: newId, persona } = await provisionProfile(client, workerKey, {
+        name,
+        geo: opts.geo,
+        timezone: opts.tz,
+        role: opts.role,
+        proxy: useProxy
+          ? {
+              server: proxyServer as string,
+              username: opts.proxyUser ?? process.env.PROXY_USERNAME,
+              password: opts.proxyPass ?? process.env.PROXY_PASSWORD,
+            }
+          : undefined,
+        stayProvisioning: true,
+      });
+      profileId = newId;
+      tz = opts.tz;
+      console.log(`\ncreated profile ${profileId} (${name}, persona ${persona.fullName})`);
+    } else {
+      if (!profileId) {
+        throw new Error("provide a profileId, or use --create to provision a new one");
+      }
+      const profile = (await client.query(api.profiles.get, {
+        profileId,
+      })) as Doc<"profiles"> | null;
+      if (!profile) throw new Error(`profile not found: ${profileId}`);
+      if (profile.launchConfigId) {
+        const lc = (await client.query(api.launchConfigs.get, {
+          launchConfigId: profile.launchConfigId,
+        })) as Doc<"launchConfigs"> | null;
+        if (lc?.timezone) tz = lc.timezone;
+      }
+    }
+
+    if (opts.force && profileId) {
+      const res = (await client.mutation(api.sessions.forceRelease, {
+        workerKey,
+        profileId,
+      })) as { released: boolean };
+      if (res.released) console.log(`released stale active session on ${profileId}`);
+    }
+
+    const args = ["--import", "tsx", "src/runner/agentTest.ts", profileId as string];
+    if (opts.url) args.push("--url", opts.url);
+    if (opts.instruction) args.push("--instruction", opts.instruction);
+    if (opts.maxSteps) args.push("--max-steps", String(opts.maxSteps));
+
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn("node", args, {
+        stdio: "inherit",
+        env: { ...process.env, TZ: tz },
+      });
+      child.on("exit", (c) => resolve(c ?? 1));
+      child.on("error", (err) => {
+        console.error(String(err));
+        resolve(1);
+      });
+    });
+    process.exitCode = code;
+  });
+
 // -------------------------------------------------------- account lifecycle
 async function enqueueTask(
   profileId: string,
@@ -96,9 +350,11 @@ program
   .command("signup <profileId>")
   .description("enqueue a LinkedIn account-creation task for a provisioning profile")
   .option("--max-steps <n>", "agent step budget")
+  .option("--skip-preflight", "skip the proxy/fingerprint preflight checks before signup")
   .action(async (profileId, opts) => {
     await enqueueTask(profileId, "signup", {
       ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
+      ...(opts.skipPreflight ? { skipPreflight: true } : {}),
     });
   });
 

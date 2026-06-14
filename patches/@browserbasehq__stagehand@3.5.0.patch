@@ -1,0 +1,251 @@
+diff --git a/dist/cjs/lib/v3/dom/build/scriptV3Content.js b/dist/cjs/lib/v3/dom/build/scriptV3Content.js
+index 64416dee4c3383c251a28b28dd072fdc7e572853..d872e6d102438c85a4ee402ddfd7ccdf9ad263d2 100644
+--- a/dist/cjs/lib/v3/dom/build/scriptV3Content.js
++++ b/dist/cjs/lib/v3/dom/build/scriptV3Content.js
+@@ -1,5 +1,5 @@
+ "use strict";
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.v3ScriptContent = void 0;
+-exports.v3ScriptContent = "(()=>{function s(c={}){let r=e=>{let{hostToRoot:o}=e;window.__stagehandV3__={getClosedRoot:a=>o.get(a),stats:()=>({installed:!0,url:location.href,isTop:window.top===window,open:e.openCount,closed:e.closedCount})}},n=Element.prototype.attachShadow;if(n.__v3Patched&&n.__v3State){n.__v3State.debug=!0,r(n.__v3State);return}let t={hostToRoot:new WeakMap,openCount:0,closedCount:0,debug:!0},l=n,d=function(e){let o=e?.mode??\"open\",a=l.call(this,e);try{t.hostToRoot.set(this,a),o===\"closed\"?t.closedCount++:t.openCount++,t.debug&&console.info(\"[v3-piercer] attachShadow\",{tag:this.tagName?.toLowerCase()??\"\",mode:o,url:location.href})}catch{}return a};if(d.__v3Patched=!0,d.__v3State=t,Object.defineProperty(Element.prototype,\"attachShadow\",{configurable:!0,writable:!0,value:d}),c.tagExisting)try{let e=document.createTreeWalker(document,NodeFilter.SHOW_ELEMENT);for(;e.nextNode();){let o=e.currentNode;o.shadowRoot&&(t.hostToRoot.set(o,o.shadowRoot),t.openCount++)}}catch{}window.__stagehandV3Injected=!0,r(t),t.debug&&console.info(\"[v3-piercer] installed\",{url:location.href,isTop:window.top===window,readyState:document.readyState})}s({debug:!0,tagExisting:!1});})();";
++exports.v3ScriptContent = "(()=>{function s(c={}){let AS=Element.prototype.attachShadow,NS=Function.prototype.toString.call(AS),hide=(o,k,v)=>{try{Object.defineProperty(o,k,{value:v,configurable:!0,writable:!0,enumerable:!1})}catch{}},r=e=>{let{hostToRoot:o}=e;hide(window,\"__stagehandV3__\",{getClosedRoot:a=>o.get(a),stats:()=>({installed:!0,url:location.href,isTop:window.top===window,open:e.openCount,closed:e.closedCount})})},n=AS;if(n.__v3Patched&&n.__v3State){n.__v3State.debug=!1,r(n.__v3State);return}let t={hostToRoot:new WeakMap,openCount:0,closedCount:0,debug:!1},l=n,d=function(e){let o=e?.mode??\"open\",a=l.call(this,e);try{t.hostToRoot.set(this,a),o===\"closed\"?t.closedCount++:t.openCount++}catch{}return a};hide(d,\"__v3Patched\",!0),hide(d,\"__v3State\",t);try{Object.defineProperty(d,\"name\",{value:\"attachShadow\",configurable:!0})}catch{}try{Object.defineProperty(d,\"length\",{value:AS.length,configurable:!0})}catch{}try{let T=Function.prototype.toString,P=new Proxy(T,{apply:(g,thisArg,args)=>thisArg===d?NS:Reflect.apply(g,thisArg,args)});Object.defineProperty(Function.prototype,\"toString\",{value:P,configurable:!0,writable:!0})}catch{}if(Object.defineProperty(Element.prototype,\"attachShadow\",{configurable:!0,writable:!0,value:d}),c.tagExisting)try{let e=document.createTreeWalker(document,NodeFilter.SHOW_ELEMENT);for(;e.nextNode();){let o=e.currentNode;o.shadowRoot&&(t.hostToRoot.set(o,o.shadowRoot),t.openCount++)}}catch{}hide(window,\"__stagehandV3Injected\",!0),r(t)}s({debug:!1,tagExisting:!1});})();";
+ //# sourceMappingURL=scriptV3Content.js.map
+\ No newline at end of file
+diff --git a/dist/cjs/lib/v3/understudy/context.js b/dist/cjs/lib/v3/understudy/context.js
+index 78b89c8ff29f0c914a311238fd49beccd0af95d3..29c086216a796ea730739bfb5c650f2b952a4b9c 100644
+--- a/dist/cjs/lib/v3/understudy/context.js
++++ b/dist/cjs/lib/v3/understudy/context.js
+@@ -544,7 +544,8 @@ class V3Context {
+         // Commands are sent in-order on the same session before resume.
+         const corePreResumeOps = [
+             queuePreResume("Page.enable"),
+-            queuePreResume("Runtime.enable"),
++            // blessGTM Phase 1: do not enable Runtime at target attach — fingerprint.com
++            // collects developer_tools/bot signals when the JS agent loads.
+             queuePreResume("Target.setAutoAttach", {
+                 autoAttach: true,
+                 waitForDebuggerOnStart: true,
+diff --git a/dist/cjs/lib/v3/understudy/executionContextRegistry.js b/dist/cjs/lib/v3/understudy/executionContextRegistry.js
+index d5e52455fdc2d2d288e57c22df275b5576ab10a9..d5f7a180f89a546ce16e2e126fde9844f5407be5 100644
+--- a/dist/cjs/lib/v3/understudy/executionContextRegistry.js
++++ b/dist/cjs/lib/v3/understudy/executionContextRegistry.js
+@@ -4,7 +4,7 @@ exports.executionContexts = exports.ExecutionContextRegistry = void 0;
+ class ExecutionContextRegistry {
+     byFrame = new WeakMap();
+     byExec = new WeakMap();
+-    /** Wire listeners for this session. Call BEFORE Runtime.enable. */
++    /** Wire listeners for this session (executionContextCreated events). */
+     attachSession(session) {
+         const onCreated = (evt) => {
+             const aux = (evt.context.auxData ?? {});
+@@ -39,7 +39,6 @@ class ExecutionContextRegistry {
+         const cached = this.getMainWorld(session, frameId);
+         if (cached)
+             return cached;
+-        await session.send("Runtime.enable").catch(() => { });
+         const after = this.getMainWorld(session, frameId);
+         if (after)
+             return after;
+diff --git a/dist/cjs/lib/v3/understudy/frame.js b/dist/cjs/lib/v3/understudy/frame.js
+index ce8b21a6fea1f4cc1dfdc8e43345e014144f5a3c..0721a28db131aac2000bba1c0ea267ca196f2aa4 100644
+--- a/dist/cjs/lib/v3/understudy/frame.js
++++ b/dist/cjs/lib/v3/understudy/frame.js
+@@ -86,7 +86,6 @@ class Frame {
+      * - If a function is provided, it is stringified and invoked with the optional argument.
+      */
+     async evaluate(pageFunctionOrExpression, arg) {
+-        await this.session.send("Runtime.enable").catch(() => { });
+         const contextId = await this.getMainWorldExecutionContextId();
+         const isString = typeof pageFunctionOrExpression === "string";
+         let expression;
+diff --git a/dist/cjs/lib/v3/understudy/locator.js b/dist/cjs/lib/v3/understudy/locator.js
+index 02c9651b0c2eb28afbaac7c07c1b1927122603ad..d282a911707d89ce9b3bcf2303e1e10eb4b80c41 100644
+--- a/dist/cjs/lib/v3/understudy/locator.js
++++ b/dist/cjs/lib/v3/understudy/locator.js
+@@ -213,7 +213,6 @@ class Locator {
+     /** Return how many nodes the current selector resolves to. */
+     async count() {
+         const session = this.frame.session;
+-        await session.send("Runtime.enable");
+         await session.send("DOM.enable");
+         return this.selectorResolver.count(this.selectorQuery);
+     }
+@@ -743,7 +742,6 @@ class Locator {
+      */
+     async resolveNode() {
+         const session = this.frame.session;
+-        await session.send("Runtime.enable");
+         await session.send("DOM.enable");
+         const index = this.nthIndex < 0 ? 0 : this.nthIndex;
+         const resolved = await this.selectorResolver.resolveAtIndex(this.selectorQuery, index);
+@@ -758,7 +756,6 @@ class Locator {
+      */
+     async resolveNodesForMask() {
+         const session = this.frame.session;
+-        await session.send("Runtime.enable");
+         await session.send("DOM.enable");
+         if (this.nthIndex >= 0) {
+             const resolved = await this.selectorResolver.resolveAtIndex(this.selectorQuery, this.nthIndex);
+diff --git a/dist/cjs/lib/v3/understudy/page.js b/dist/cjs/lib/v3/understudy/page.js
+index 7028b5e26e718313626d98e65d94b16960421fd2..0403b2b69eda7325e65372ebb6ebbb19442a4183 100644
+--- a/dist/cjs/lib/v3/understudy/page.js
++++ b/dist/cjs/lib/v3/understudy/page.js
+@@ -630,7 +630,6 @@ let Page = (() => {
+             const key = this.sessionKey(session);
+             if (this.consoleHandlers.has(key))
+                 return;
+-            void session.send("Runtime.enable").catch(() => { });
+             const handler = (evt) => {
+                 this.emitConsole(evt);
+             };
+@@ -876,7 +875,6 @@ let Page = (() => {
+          */
+         async title() {
+             try {
+-                await this.mainSession.send("Runtime.enable").catch(() => { });
+                 const ctxId = await this.mainWorldExecutionContextId();
+                 const { result } = await this.mainSession.send("Runtime.evaluate", {
+                     expression: "document.title",
+@@ -1106,7 +1104,6 @@ let Page = (() => {
+          *   best-effort serialize via JSON.stringify inside the page context.
+          */
+         async evaluate(pageFunctionOrExpression, arg) {
+-            await this.mainSession.send("Runtime.enable").catch(() => { });
+             const ctxId = await this.mainWorldExecutionContextId();
+             const isString = typeof pageFunctionOrExpression === "string";
+             let expression;
+diff --git a/dist/cjs/lib/v3/understudy/piercer.js b/dist/cjs/lib/v3/understudy/piercer.js
+index 6e7ceec85a41f59a7b3e1b836ece25430730020c..927824b2cc58c96a0b6f584d3805300d4752051c 100644
+--- a/dist/cjs/lib/v3/understudy/piercer.js
++++ b/dist/cjs/lib/v3/understudy/piercer.js
+@@ -12,7 +12,6 @@ async function installV3PiercerIntoSession(session) {
+         .catch(() => false);
+     if (!pageEnabled)
+         return false;
+-    await session.send("Runtime.enable").catch(() => { });
+     try {
+         await session.send("Page.addScriptToEvaluateOnNewDocument", { source: scriptV3Content_js_1.v3ScriptContent, runImmediately: true });
+     }
+diff --git a/dist/esm/lib/v3/dom/build/scriptV3Content.js b/dist/esm/lib/v3/dom/build/scriptV3Content.js
+index 6b41f66892c279c72453097379a5c3c2985562d2..870acd3074a694ca3adc547235538e3fd196bd18 100644
+--- a/dist/esm/lib/v3/dom/build/scriptV3Content.js
++++ b/dist/esm/lib/v3/dom/build/scriptV3Content.js
+@@ -1,2 +1,2 @@
+-export const v3ScriptContent = "(()=>{function s(c={}){let r=e=>{let{hostToRoot:o}=e;window.__stagehandV3__={getClosedRoot:a=>o.get(a),stats:()=>({installed:!0,url:location.href,isTop:window.top===window,open:e.openCount,closed:e.closedCount})}},n=Element.prototype.attachShadow;if(n.__v3Patched&&n.__v3State){n.__v3State.debug=!0,r(n.__v3State);return}let t={hostToRoot:new WeakMap,openCount:0,closedCount:0,debug:!0},l=n,d=function(e){let o=e?.mode??\"open\",a=l.call(this,e);try{t.hostToRoot.set(this,a),o===\"closed\"?t.closedCount++:t.openCount++,t.debug&&console.info(\"[v3-piercer] attachShadow\",{tag:this.tagName?.toLowerCase()??\"\",mode:o,url:location.href})}catch{}return a};if(d.__v3Patched=!0,d.__v3State=t,Object.defineProperty(Element.prototype,\"attachShadow\",{configurable:!0,writable:!0,value:d}),c.tagExisting)try{let e=document.createTreeWalker(document,NodeFilter.SHOW_ELEMENT);for(;e.nextNode();){let o=e.currentNode;o.shadowRoot&&(t.hostToRoot.set(o,o.shadowRoot),t.openCount++)}}catch{}window.__stagehandV3Injected=!0,r(t),t.debug&&console.info(\"[v3-piercer] installed\",{url:location.href,isTop:window.top===window,readyState:document.readyState})}s({debug:!0,tagExisting:!1});})();";
++export const v3ScriptContent = "(()=>{function s(c={}){let AS=Element.prototype.attachShadow,NS=Function.prototype.toString.call(AS),hide=(o,k,v)=>{try{Object.defineProperty(o,k,{value:v,configurable:!0,writable:!0,enumerable:!1})}catch{}},r=e=>{let{hostToRoot:o}=e;hide(window,\"__stagehandV3__\",{getClosedRoot:a=>o.get(a),stats:()=>({installed:!0,url:location.href,isTop:window.top===window,open:e.openCount,closed:e.closedCount})})},n=AS;if(n.__v3Patched&&n.__v3State){n.__v3State.debug=!1,r(n.__v3State);return}let t={hostToRoot:new WeakMap,openCount:0,closedCount:0,debug:!1},l=n,d=function(e){let o=e?.mode??\"open\",a=l.call(this,e);try{t.hostToRoot.set(this,a),o===\"closed\"?t.closedCount++:t.openCount++}catch{}return a};hide(d,\"__v3Patched\",!0),hide(d,\"__v3State\",t);try{Object.defineProperty(d,\"name\",{value:\"attachShadow\",configurable:!0})}catch{}try{Object.defineProperty(d,\"length\",{value:AS.length,configurable:!0})}catch{}try{let T=Function.prototype.toString,P=new Proxy(T,{apply:(g,thisArg,args)=>thisArg===d?NS:Reflect.apply(g,thisArg,args)});Object.defineProperty(Function.prototype,\"toString\",{value:P,configurable:!0,writable:!0})}catch{}if(Object.defineProperty(Element.prototype,\"attachShadow\",{configurable:!0,writable:!0,value:d}),c.tagExisting)try{let e=document.createTreeWalker(document,NodeFilter.SHOW_ELEMENT);for(;e.nextNode();){let o=e.currentNode;o.shadowRoot&&(t.hostToRoot.set(o,o.shadowRoot),t.openCount++)}}catch{}hide(window,\"__stagehandV3Injected\",!0),r(t)}s({debug:!1,tagExisting:!1});})();";
+ //# sourceMappingURL=scriptV3Content.js.map
+\ No newline at end of file
+diff --git a/dist/esm/lib/v3/understudy/context.js b/dist/esm/lib/v3/understudy/context.js
+index 65ba08c373d783305b9ba674e3c575bbc91c8165..8dcf830698d23b59e5af41f1f162a42c6520e248 100644
+--- a/dist/esm/lib/v3/understudy/context.js
++++ b/dist/esm/lib/v3/understudy/context.js
+@@ -541,7 +541,8 @@ export class V3Context {
+         // Commands are sent in-order on the same session before resume.
+         const corePreResumeOps = [
+             queuePreResume("Page.enable"),
+-            queuePreResume("Runtime.enable"),
++            // blessGTM Phase 1: do not enable Runtime at target attach — fingerprint.com
++            // collects developer_tools/bot signals when the JS agent loads.
+             queuePreResume("Target.setAutoAttach", {
+                 autoAttach: true,
+                 waitForDebuggerOnStart: true,
+diff --git a/dist/esm/lib/v3/understudy/executionContextRegistry.js b/dist/esm/lib/v3/understudy/executionContextRegistry.js
+index 82ab27ec3a943d6303a42ca7a65844b59b361b92..de7aa89b23c5aa5ea43aa52624bfae8e0127f8b6 100644
+--- a/dist/esm/lib/v3/understudy/executionContextRegistry.js
++++ b/dist/esm/lib/v3/understudy/executionContextRegistry.js
+@@ -1,7 +1,7 @@
+ export class ExecutionContextRegistry {
+     byFrame = new WeakMap();
+     byExec = new WeakMap();
+-    /** Wire listeners for this session. Call BEFORE Runtime.enable. */
++    /** Wire listeners for this session (executionContextCreated events). */
+     attachSession(session) {
+         const onCreated = (evt) => {
+             const aux = (evt.context.auxData ?? {});
+@@ -36,7 +36,6 @@ export class ExecutionContextRegistry {
+         const cached = this.getMainWorld(session, frameId);
+         if (cached)
+             return cached;
+-        await session.send("Runtime.enable").catch(() => { });
+         const after = this.getMainWorld(session, frameId);
+         if (after)
+             return after;
+diff --git a/dist/esm/lib/v3/understudy/frame.js b/dist/esm/lib/v3/understudy/frame.js
+index 23848ee2f1e9cca7372d28a777eb5c02db71aaf2..1dfcf9c6f7442de0916930ac46a9eb85836bf1ed 100644
+--- a/dist/esm/lib/v3/understudy/frame.js
++++ b/dist/esm/lib/v3/understudy/frame.js
+@@ -83,7 +83,6 @@ export class Frame {
+      * - If a function is provided, it is stringified and invoked with the optional argument.
+      */
+     async evaluate(pageFunctionOrExpression, arg) {
+-        await this.session.send("Runtime.enable").catch(() => { });
+         const contextId = await this.getMainWorldExecutionContextId();
+         const isString = typeof pageFunctionOrExpression === "string";
+         let expression;
+diff --git a/dist/esm/lib/v3/understudy/locator.js b/dist/esm/lib/v3/understudy/locator.js
+index 6333f1833db2ae4e5b87865f94f54a853d4529cf..0c7f8872d6294580c10bee45858e36bdafa75978 100644
+--- a/dist/esm/lib/v3/understudy/locator.js
++++ b/dist/esm/lib/v3/understudy/locator.js
+@@ -177,7 +177,6 @@ export class Locator {
+     /** Return how many nodes the current selector resolves to. */
+     async count() {
+         const session = this.frame.session;
+-        await session.send("Runtime.enable");
+         await session.send("DOM.enable");
+         return this.selectorResolver.count(this.selectorQuery);
+     }
+@@ -707,7 +706,6 @@ export class Locator {
+      */
+     async resolveNode() {
+         const session = this.frame.session;
+-        await session.send("Runtime.enable");
+         await session.send("DOM.enable");
+         const index = this.nthIndex < 0 ? 0 : this.nthIndex;
+         const resolved = await this.selectorResolver.resolveAtIndex(this.selectorQuery, index);
+@@ -722,7 +720,6 @@ export class Locator {
+      */
+     async resolveNodesForMask() {
+         const session = this.frame.session;
+-        await session.send("Runtime.enable");
+         await session.send("DOM.enable");
+         if (this.nthIndex >= 0) {
+             const resolved = await this.selectorResolver.resolveAtIndex(this.selectorQuery, this.nthIndex);
+diff --git a/dist/esm/lib/v3/understudy/page.js b/dist/esm/lib/v3/understudy/page.js
+index 930984ec0ced04572e36839e5ea7c18d1eb4d487..a53b0fd34f254107b908b5097d52e62a1669f880 100644
+--- a/dist/esm/lib/v3/understudy/page.js
++++ b/dist/esm/lib/v3/understudy/page.js
+@@ -627,7 +627,6 @@ let Page = (() => {
+             const key = this.sessionKey(session);
+             if (this.consoleHandlers.has(key))
+                 return;
+-            void session.send("Runtime.enable").catch(() => { });
+             const handler = (evt) => {
+                 this.emitConsole(evt);
+             };
+@@ -873,7 +872,6 @@ let Page = (() => {
+          */
+         async title() {
+             try {
+-                await this.mainSession.send("Runtime.enable").catch(() => { });
+                 const ctxId = await this.mainWorldExecutionContextId();
+                 const { result } = await this.mainSession.send("Runtime.evaluate", {
+                     expression: "document.title",
+@@ -1103,7 +1101,6 @@ let Page = (() => {
+          *   best-effort serialize via JSON.stringify inside the page context.
+          */
+         async evaluate(pageFunctionOrExpression, arg) {
+-            await this.mainSession.send("Runtime.enable").catch(() => { });
+             const ctxId = await this.mainWorldExecutionContextId();
+             const isString = typeof pageFunctionOrExpression === "string";
+             let expression;
+diff --git a/dist/esm/lib/v3/understudy/piercer.js b/dist/esm/lib/v3/understudy/piercer.js
+index 2f50d56820f4e2aeac5a38921c115a533a060f4c..833498a57364956368707ad6ce114fbb5180fd8e 100644
+--- a/dist/esm/lib/v3/understudy/piercer.js
++++ b/dist/esm/lib/v3/understudy/piercer.js
+@@ -8,7 +8,6 @@ export async function installV3PiercerIntoSession(session) {
+         .catch(() => false);
+     if (!pageEnabled)
+         return false;
+-    await session.send("Runtime.enable").catch(() => { });
+     try {
+         await session.send("Page.addScriptToEvaluateOnNewDocument", { source: v3ScriptContent, runImmediately: true });
+     }

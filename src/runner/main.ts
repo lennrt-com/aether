@@ -12,6 +12,8 @@ import { createEmitter } from "./emit.js";
 import { classifyPage } from "./classify.js";
 import { launchSession, DEFAULT_MODEL } from "./session.js";
 import { runSignup, runLogin } from "./signup.js";
+import { runPreflight } from "./preflight.js";
+import { runFingerprintCheck } from "./fingerprintCheck.js";
 import { buildBehavior, type PersonaLike } from "./behaviors.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
@@ -92,7 +94,18 @@ const session = await launchSession({
         password: bundle.proxyBinding.password,
       }
     : undefined,
-  // Keeps profiles portable across Linux hosts; harmless on Windows dev.
+  fingerprint:
+    process.env.FINGERPRINT_SPOOF !== "false" && bundle.launchConfig?.fingerprintSeed
+      ? {
+          seed: bundle.launchConfig.fingerprintSeed,
+          hardwareConcurrency: bundle.launchConfig.hardwareConcurrency ?? undefined,
+          deviceMemory: bundle.launchConfig.deviceMemory ?? undefined,
+          languages: localeToLanguages(bundle.launchConfig.locale),
+        }
+      : undefined,
+  // Base args only. launchSession merges in the WebRTC + stealth hardening
+  // (see chromeFlags.ts); --password-store=basic keeps profiles portable across
+  // Linux hosts and is harmless on Windows dev.
   args: ["--password-store=basic"],
 });
 
@@ -114,9 +127,49 @@ try {
     instruction?: string;
     evaluate?: string;
     maxSteps?: number;
+    skipPreflight?: boolean;
   };
 
-  if (task.type === "signup" || task.type === "login") {
+  // Gate: before creating a LinkedIn account, prove the proxy + fingerprint are
+  // clean. A leaky setup aborts here so no account is ever born behind it.
+  const preflightOn = task.type === "signup" && payload.skipPreflight !== true && process.env.PREFLIGHT !== "false";
+  const fingerprintCheckOn =
+    task.type === "signup" &&
+    payload.skipPreflight !== true &&
+    process.env.PREFLIGHT_FINGERPRINT !== "false" &&
+    process.env.FINGERPRINT_SPOOF !== "false";
+  if (preflightOn) {
+    const preflight = await runPreflight({
+      stagehand: session.stagehand,
+      emit,
+      egressIp: session.egressIp,
+      expectedGeo: bundle.proxyBinding?.geo,
+    });
+    if (!preflight.ok) {
+      await emit("ActionFailed", { phase: "preflight", error: preflight.summary }, randomUUID());
+      exitCode = 1;
+    }
+  }
+
+  if (exitCode === 0 && fingerprintCheckOn) {
+    const fpCheck = await runFingerprintCheck({
+      stagehand: session.stagehand,
+      convex,
+      workerKey,
+      profileId: bundle.profile._id,
+      emit,
+    });
+    if (!fpCheck.ok) {
+      await emit(
+        "ActionFailed",
+        { phase: "fingerprint_check", error: fpCheck.reasons.join("; ") },
+        randomUUID(),
+      );
+      exitCode = 1;
+    }
+  }
+
+  if (exitCode === 0 && (task.type === "signup" || task.type === "login")) {
     // Account flows own their full action lifecycle (events, creds, transitions).
     const flowDeps = {
       stagehand: session.stagehand,
@@ -134,7 +187,7 @@ try {
       await emit("ActionFailed", { error: String(err) }, randomUUID());
       exitCode = 1;
     }
-  } else {
+  } else if (exitCode === 0) {
     // browse / warmup_feed / engage_post — fall back to persona-driven LinkedIn
     // behaviors when the payload carries no explicit instruction.
     const personaLike = (bundle.persona?.data ?? null) as PersonaLike | null;
@@ -246,4 +299,9 @@ function readStagehandVersion(): string {
   const require = createRequire(import.meta.url);
   const pkg = require("@browserbasehq/stagehand/package.json") as { version: string };
   return pkg.version;
+}
+
+function localeToLanguages(locale: string): string[] {
+  const base = locale.split("-")[0];
+  return base && base !== locale ? [locale, base] : [locale];
 }

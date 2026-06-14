@@ -91,6 +91,10 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
 
   try {
     await stagehand.init();
+    // Stealth: block the CDP `Runtime.enable` command at the transport layer
+    // BEFORE any navigation/agent work so no a11y/clipboard/frame call can
+    // enable it. See suppressRuntimeEnable() for the full rationale.
+    suppressRuntimeEnable(stagehand);
     if (cfg.fingerprint) {
       await applyFingerprint(stagehand.context, cfg.fingerprint);
     }
@@ -117,6 +121,50 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
       if (relay) await relay.close();
     },
   };
+}
+
+// Minimal shape of Stagehand's internal CDP connection (lib/v3/understudy/cdp).
+// Every CDP message — root-level and per-session (page.sendCDP, session.send) —
+// funnels through these two methods on the single connection instance.
+type CdpConnLike = {
+  send?: (method: string, params?: unknown) => Promise<unknown>;
+  _sendViaSession?: (sessionId: string, method: string, params?: unknown) => Promise<unknown>;
+  __runtimeEnableSuppressed?: boolean;
+};
+
+// Prevent the CDP `Runtime.enable` command from ever reaching Chrome.
+//
+// Enabling the Runtime domain has page-observable side effects: console object
+// serialization invokes `Error.stack` getters, and that is exactly what
+// open-source CDP detectors probe (fpscanner `hasCDP`, deviceandbrowserinfo,
+// Fingerprint botd). Several Stagehand internals call `Runtime.enable` on the
+// agent hot path — the accessibility snapshot (ariaTree/extract/observe),
+// clipboard ops, and the cross-frame locator — so removing it from a few call
+// sites is whack-a-mole (and broke once already on a version bump).
+//
+// Instead we drop it at the single transport chokepoint, so NO call site —
+// present or future — can turn the domain on. `Runtime.evaluate` still works
+// without `Runtime.enable`; execution-context lookups simply fall back to a
+// context-less eval after waitForMainWorld's 800ms timeout. Escape hatch:
+// STEALTH_ALLOW_RUNTIME_ENABLE=1 restores stock behavior for debugging.
+function suppressRuntimeEnable(stagehand: Stagehand): void {
+  if (process.env.STEALTH_ALLOW_RUNTIME_ENABLE === "1") return;
+  const conn = (stagehand.context as unknown as { conn?: CdpConnLike }).conn;
+  if (!conn || conn.__runtimeEnableSuppressed) return;
+
+  const isBlocked = (method: string): boolean => method === "Runtime.enable";
+
+  if (typeof conn.send === "function") {
+    const original = conn.send.bind(conn);
+    conn.send = (method: string, params?: unknown) =>
+      isBlocked(method) ? Promise.resolve({}) : original(method, params);
+  }
+  if (typeof conn._sendViaSession === "function") {
+    const original = conn._sendViaSession.bind(conn);
+    conn._sendViaSession = (sessionId: string, method: string, params?: unknown) =>
+      isBlocked(method) ? Promise.resolve({}) : original(sessionId, method, params);
+  }
+  conn.__runtimeEnableSuppressed = true;
 }
 
 // chrome-launcher writes chrome.pid into the userDataDir.

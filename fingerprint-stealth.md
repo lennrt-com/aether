@@ -9,7 +9,8 @@ Three Fingerprint signals were the targets, and the end state we reach:
 | Signal | Before | After | Fixed by |
 | --- | --- | --- | --- |
 | `bot` (`bot_type: "nodriver"`) | `bad` | `not_detected` | **Layer 1** — launch-flag hygiene (UA‑CH) |
-| `developer_tools` | `true` | `false` | **Layer 3** — removing CDP `Runtime.enable` |
+| `developer_tools` (Fingerprint) | `true` | `false` | **Layer 3** — removing CDP `Runtime.enable` |
+| `hasCDP` / `cdp` (fpscanner, deviceandbrowserinfo) | `true` | `false` | **Layer 3B** — transport-level `Runtime.enable` block |
 | `tampering` | varies | `false` | **Layer 5** — truthful fingerprint + native masking |
 | `vpn` / `proxy` (OS mismatch) | flagged | provider-dependent | **Layer 6** — WebRTC hardening + proxy choice |
 
@@ -140,23 +141,30 @@ headful and headless. Highest-value, lowest-risk single stealth flag.
 
 ---
 
-## Layer 3 — Killing the CDP `Runtime.enable` leak: the `developer_tools` fix ⭐
+## Layer 3 — Killing the CDP `Runtime.enable` leak: `developer_tools` AND `hasCDP` ⭐
 
-**This cleared `developer_tools: true` → `false`.**
+**This cleared `developer_tools: true` → `false` (Fingerprint) and `hasCDP:
+true` → `false` (fpscanner / deviceandbrowserinfo).**
 
 ### The problem
 
 Sending the CDP command **`Runtime.enable`** has observable side effects in the
-page (it changes how `Error.stack` getters serialize, console behavior, etc.).
-Detectors — and Fingerprint's `developer_tools` signal — watch for these.
-Stagehand v3 called `Runtime.enable` in many hot paths.
+page: console object serialization invokes `Error.stack` getters and exposes the
+runtime to the debugger. Detectors probe for this:
+- Fingerprint's `developer_tools` signal.
+- The open-source `hasCDP` check (`fpscanner`, `deviceandbrowserinfo`,
+  Fingerprint botd): create an `Error`, define a `stack` getter that flips a
+  flag, `console.debug(err)`, and see if the getter fired — it only fires while
+  the Runtime domain is enabled.
 
-### The fix
+Once `Runtime.enable` is sent on a session it stays enabled for that target's
+lifetime, so a **single** call anywhere makes the page CDP-detectable.
 
-Remove every `Runtime.enable` call from Stagehand's understudy layer and rely on
-the already-present `Page.enable` + `DOM.enable` + `Target.setAutoAttach` +
-`getMainWorldExecutionContextId()` path (which still yields execution contexts
-via `executionContextCreated` events). Applied via a **pnpm patch** so it
+### Fix part A — remove the obvious call sites (pnpm patch)
+
+Remove `Runtime.enable` from Stagehand's understudy layer and rely on the
+already-present `Page.enable` + `DOM.enable` + `Target.setAutoAttach` +
+`getMainWorldExecutionContextId()` path. Applied via a **pnpm patch** so it
 survives reinstalls.
 
 Patched files (both `dist/cjs` **and** `dist/esm`):
@@ -186,14 +194,52 @@ pnpm patch @browserbasehq/stagehand@3.5.0
 pnpm patch-commit <temp-dir>
 ```
 
-> **Why automation still works:** execution-context ids are obtained from
-> `Target.setAutoAttach` + `executionContextCreated` events and `DOM.enable`,
-> not from `Runtime.enable`. `Runtime.evaluate` itself still works without
-> `Runtime.enable` having been globally toggled.
+### Fix part B — block `Runtime.enable` at the transport (the real guarantee) ⭐
+
+The patch above is **not enough on its own**: it only covered the call sites we
+knew about. Stagehand calls `Runtime.enable` in *more* places on the agent hot
+path that the patch missed — the accessibility snapshot
+(`a11y/snapshot/a11yTree.js`, used by `ariaTree` / `extract` / `observe`),
+`activeElement.js` and `coordinateResolver.js` (used when the agent clicks),
+`clipboard.js`, and `frameLocator.js`. That is exactly why `hasCDP` stayed
+`true` during agent runs even though `developer_tools` was already `false`: the
+agent's first `ariaTree` tool re-enabled Runtime.
+
+Chasing call sites is whack-a-mole and broke once already on a version bump. So
+we drop `Runtime.enable` at the **single CDP transport chokepoint** instead.
+Every CDP message — root-level and per-session (`page.sendCDP`, `session.send`)
+— funnels through `CdpConnection.send` / `CdpConnection._sendViaSession` on the
+one connection instance (`stagehand.context.conn`). We wrap both right after
+`stagehand.init()` and short-circuit `Runtime.enable` to a resolved empty
+result, so **no call site — present or future — can enable the domain**.
+
+`src/runner/session.ts`, `suppressRuntimeEnable()` (called from `launchSession`
+after init):
+
+```ts
+const conn = (stagehand.context as unknown as { conn?: CdpConnLike }).conn;
+const isBlocked = (m: string) => m === "Runtime.enable";
+const send = conn.send.bind(conn);
+conn.send = (m, p) => (isBlocked(m) ? Promise.resolve({}) : send(m, p));
+const viaSession = conn._sendViaSession.bind(conn);
+conn._sendViaSession = (sid, m, p) => (isBlocked(m) ? Promise.resolve({}) : viaSession(sid, m, p));
+```
+
+This lives in **our** code (no patch fragility across Stagehand versions) and is
+a single, auditable point. Escape hatch: `STEALTH_ALLOW_RUNTIME_ENABLE=1`
+restores stock behavior for debugging/A-B.
+
+> **Why automation still works:** `Runtime.evaluate` / `Runtime.callFunctionOn`
+> do **not** require `Runtime.enable`. With the domain off, `executionContextCreated`
+> events never fire, so `executionContextRegistry.waitForMainWorld` hits its
+> 800ms timeout and callers fall back to a **context-less** `Runtime.evaluate`
+> (evaluates in the target's default world — correct for top frame + each
+> auto-attached OOPIF). The only cost is up to 800ms per coordinate/eval lookup
+> on the click path — a fine trade for stealth.
 
 ---
 
-## Layer 4 — Hiding the Stagehand piercer artifacts ⚠️ (not in the patch!)
+## Layer 4 — Hiding the Stagehand piercer artifacts
 
 ### The problem
 
@@ -344,8 +390,9 @@ real browser.** When in doubt, don't.
    `--disable-blink-features=AutomationControlled` (Layer 2) + WebRTC flags
    (Layer 6), with caller args winning.
 4. `new Stagehand({ env:"LOCAL", ignoreDefaultArgs:true, ... })` (Layer 1) — and
-   the patched Stagehand (Layers 3 & 4) is what actually runs.
-5. `stagehand.init()`, then `applyFingerprint(context, cfg)` (Layer 5).
+   the patched Stagehand (Layers 3A & 4) is what actually runs.
+5. `stagehand.init()` → `suppressRuntimeEnable(stagehand)` (Layer 3B, transport
+   block) → `applyFingerprint(context, cfg)` (Layer 5).
 
 ---
 
@@ -390,6 +437,11 @@ asserts `tampering !== true`, and records the `visitorId` in Convex to detect
       only for debugging.
 - [ ] Re-run the A/B (`EXP_MINIMAL=1`) bisect if `nodriver` ever reappears.
 - [ ] Don't add anything from `OMITTED_STEALTH_FLAGS`.
+- [ ] `hasCDP` / `developer_tools` regressed? Confirm `suppressRuntimeEnable()`
+      still attaches (Layer 3B) — i.e. `stagehand.context.conn` still exposes
+      `send` / `_sendViaSession`. If Stagehand renames the connection internals,
+      update the `CdpConnLike` shape. Verify with `STEALTH_ALLOW_RUNTIME_ENABLE=1`
+      (should make `hasCDP` go back to `true`, proving the block is what clears it).
 
 ---
 
@@ -400,7 +452,8 @@ asserts `tampering !== true`, and records the `visitorId` in Convex to detect
 | Stagehand launch + `ignoreDefaultArgs` | `src/runner/session.ts` |
 | Curated flags, stealth flag, WebRTC, omitted flags | `src/runner/chromeFlags.ts` |
 | Deterministic fingerprint noise + native masking | `src/runner/fingerprint/patch.ts` |
-| `Runtime.enable` removals (Layer 3) | `patches/@browserbasehq__stagehand@3.5.0.patch` |
+| `Runtime.enable` removals (Layer 3A, call sites) | `patches/@browserbasehq__stagehand@3.5.0.patch` |
+| `Runtime.enable` transport block (Layer 3B, all sites) | `src/runner/session.ts` (`suppressRuntimeEnable`) |
 | Piercer stealth string (Layer 4) | `patches/@browserbasehq__stagehand@3.5.0.patch` (rewrites `dist/{esm,cjs}/lib/v3/dom/build/scriptV3Content.js`) |
 | Patch wiring | `pnpm-workspace.yaml` (`patchedDependencies`) |
 | Bot/proxy preflight | `src/runner/preflight.ts` |

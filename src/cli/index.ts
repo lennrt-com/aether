@@ -330,6 +330,102 @@ program
     process.exitCode = code;
   });
 
+// ------------------------------------------------------------- preflight-test
+program
+  .command("preflight-test [profileId]")
+  .description("run the full proxy + bot/fingerprint detector battery and print a LinkedIn-readiness report")
+  .option("--create", "provision a fresh profile first, then run preflight on it")
+  .option("--name <name>", "profile label when creating (default: preflight-<timestamp>)")
+  .option("--geo <geo>", "geo when creating", process.env.DEFAULT_GEO ?? "DE")
+  .option("--tz <timezone>", "timezone when creating", process.env.DEFAULT_TZ ?? "Europe/Berlin")
+  .option("--role <role>", "persona role when creating", "experienced professional")
+  .option("--proxy-server <hostPort>", "proxy (defaults to PROXY_SERVER env)")
+  .option("--proxy-user <user>", "defaults to PROXY_USERNAME env")
+  .option("--proxy-pass <pass>", "defaults to PROXY_PASSWORD env")
+  .option("--no-proxy", "launch/create without a proxy (direct connection)")
+  .option("--force", "release a stale active session on the profile before launching")
+  .option("--no-strict", "do not fail when too many checks error out (still fail on suspicious signals)")
+  .option("--json", "print the full report as JSON")
+  .option("--keep-open", "leave the browser open after the report for manual inspection")
+  .action(async (profileIdArg, opts) => {
+    const { client, workerKey } = convex();
+    let profileId = profileIdArg as Id<"profiles"> | undefined;
+    let tz: string = process.env.TZ ?? "UTC";
+
+    if (opts.create) {
+      const now = new Date();
+      const stamp =
+        `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}` +
+        `-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+      const name = opts.name ?? `preflight-${stamp}`;
+
+      const proxyServer = opts.proxyServer ?? process.env.PROXY_SERVER;
+      const useProxy = opts.proxy !== false && Boolean(proxyServer);
+      if (opts.proxy !== false && !proxyServer) {
+        console.log("no proxy configured (pass --proxy-server / PROXY_SERVER, or --no-proxy) — launching direct");
+      }
+
+      const { provisionProfile } = await import("../identity/provision.js");
+      const { profileId: newId, persona } = await provisionProfile(client, workerKey, {
+        name,
+        geo: opts.geo,
+        timezone: opts.tz,
+        role: opts.role,
+        proxy: useProxy
+          ? {
+              server: proxyServer as string,
+              username: opts.proxyUser ?? process.env.PROXY_USERNAME,
+              password: opts.proxyPass ?? process.env.PROXY_PASSWORD,
+            }
+          : undefined,
+        stayProvisioning: true,
+      });
+      profileId = newId;
+      tz = opts.tz;
+      console.log(`\ncreated profile ${profileId} (${name}, persona ${persona.fullName})`);
+    } else {
+      if (!profileId) {
+        throw new Error("provide a profileId, or use --create to provision a new one");
+      }
+      const profile = (await client.query(api.profiles.get, {
+        profileId,
+      })) as Doc<"profiles"> | null;
+      if (!profile) throw new Error(`profile not found: ${profileId}`);
+      if (profile.launchConfigId) {
+        const lc = (await client.query(api.launchConfigs.get, {
+          launchConfigId: profile.launchConfigId,
+        })) as Doc<"launchConfigs"> | null;
+        if (lc?.timezone) tz = lc.timezone;
+      }
+    }
+
+    if (opts.force && profileId) {
+      const res = (await client.mutation(api.sessions.forceRelease, {
+        workerKey,
+        profileId,
+      })) as { released: boolean };
+      if (res.released) console.log(`released stale active session on ${profileId}`);
+    }
+
+    const args = ["--import", "tsx", "src/runner/preflightTest.ts", profileId as string];
+    if (opts.noStrict) args.push("--strict=false");
+    if (opts.json) args.push("--json");
+    if (opts.keepOpen) args.push("--keep-open");
+
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn("node", args, {
+        stdio: "inherit",
+        env: { ...process.env, TZ: tz },
+      });
+      child.on("exit", (c) => resolve(c ?? 1));
+      child.on("error", (err) => {
+        console.error(String(err));
+        resolve(1);
+      });
+    });
+    process.exitCode = code;
+  });
+
 // -------------------------------------------------------- account lifecycle
 async function enqueueTask(
   profileId: string,

@@ -151,6 +151,8 @@ export interface PreflightDeps {
   expectedGeo?: string;
   // When true (default), unverifiable runs (majority of checks errored) abort too.
   strict?: boolean;
+  /** Called after each check finishes — useful for live CLI progress output. */
+  onCheckComplete?: (result: CheckResult, index: number, total: number) => void;
 }
 
 function isPublicIp(raw: string): boolean {
@@ -230,9 +232,12 @@ async function runCheck(deps: PreflightDeps, spec: CheckSpec): Promise<CheckResu
     if (!page) throw new Error("no active page");
 
     try {
-      await page.goto(spec.url, { waitUntil: "load", timeoutMs: spec.gotoTimeoutMs ?? 30000 });
+      await page.goto(spec.url, {
+        waitUntil: "domcontentloaded",
+        timeoutMs: spec.gotoTimeoutMs ?? 20_000,
+      });
     } catch {
-      // Detector pages often never reach a quiet "load"; extract from whatever rendered.
+      // Detector pages often never reach a quiet load state; extract from whatever rendered.
     }
     await page.waitForTimeout(spec.settleMs ?? 3000);
 
@@ -276,9 +281,11 @@ export async function runPreflight(deps: PreflightDeps): Promise<PreflightOutcom
   );
 
   const results: CheckResult[] = [];
-  for (const spec of ALL_CHECKS) {
+  for (let i = 0; i < ALL_CHECKS.length; i++) {
+    const spec = ALL_CHECKS[i];
     const result = await runCheck(deps, spec);
     results.push(result);
+    deps.onCheckComplete?.(result, i + 1, ALL_CHECKS.length);
     await emit(
       "PageObserved",
       {

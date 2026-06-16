@@ -81,7 +81,8 @@ export function buildEmailTools(opts: {
       description:
         "Read the latest verification code (6-digit) from the inbox of the email address " +
         "created with create_email_address. Polls until the email arrives (up to the timeout). " +
-        "Call this after submitting a form that triggers a verification email.",
+        "ONLY call this when the browser shows the email verification screen (6-digit code sent to your email). " +
+        "Do NOT call after phone/SMS verification — wait until you see the email code prompt first.",
       inputSchema: z.object({
         timeoutSeconds: z
           .number()
@@ -105,8 +106,23 @@ export function buildEmailTools(opts: {
             { timeoutMs: (timeoutSeconds ?? 120) * 1000 },
           );
           if (!result) {
-            await audit("read_verification_code", { error: "timeout" }, false);
-            return { success: false, error: "no verification email arrived before the timeout" };
+            const messages = await client.listMessages(state.smtpDevAccountId, state.inboxId);
+            const preview = messages.slice(0, 3).map((m) => ({
+              from: m.from?.address,
+              subject: m.subject,
+            }));
+            await audit(
+              "read_verification_code",
+              { error: "timeout", inboxCount: messages.length, recent: preview },
+              false,
+            );
+            return {
+              success: false,
+              error:
+                messages.length === 0
+                  ? "no verification email arrived before the timeout — only call this when the email verification screen is visible"
+                  : `no verification code found in ${messages.length} inbox message(s) before the timeout`,
+            };
           }
           state.verificationCode = result.code;
           await audit("read_verification_code", { subject: result.subject, code: result.code }, true);

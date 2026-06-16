@@ -45,9 +45,28 @@ export const SNAPSHOT_MUST_KEEP = [
 export const SNAPSHOT_MARKER_FILE = ".blessgtm-snapshot";
 
 // Launch config window sizes (Phase 5) — picked by profileId hash.
+// Capped at 1080p so local stealth testing stays manageable on big monitors.
+export const MAX_WINDOW_WIDTH = 1920;
+export const MAX_WINDOW_HEIGHT = 1080;
+
 export const WINDOW_SIZES = [
   { width: 1920, height: 1080 },
   { width: 1536, height: 864 },
   { width: 1440, height: 900 },
-  { width: 2560, height: 1440 },
+  { width: 1366, height: 768 },
 ] as const;
+
+/** Scale down oversized launch configs (e.g. profiles provisioned before the 1080p cap). */
+export function clampWindowSize(width: number, height: number): { width: number; height: number } {
+  let w = width;
+  let h = height;
+  if (h > MAX_WINDOW_HEIGHT) {
+    w = Math.round(w * (MAX_WINDOW_HEIGHT / h));
+    h = MAX_WINDOW_HEIGHT;
+  }
+  if (w > MAX_WINDOW_WIDTH) {
+    h = Math.round(h * (MAX_WINDOW_WIDTH / w));
+    w = MAX_WINDOW_WIDTH;
+  }
+  return { width: w, height: h };
+}

@@ -6,15 +6,23 @@ import type { Id } from "../../convex/_generated/dataModel.js";
 import { generatePersona, PersonaSchema, type Persona } from "./personaGen.js";
 import { generateLaunchConfig, type LaunchConfig } from "./launchConfigGen.js";
 
+export interface ProvisionLog {
+  info?: (message: string) => void;
+  phase?: (message: string) => void;
+}
+
 export interface ProvisionOptions {
   name: string;
   geo: string;
   timezone: string;
   role: string;
+  personaModel?: string;
+  personaPrompt?: string;
   /** Omit for a direct (no-proxy) profile — only sensible for manual/local testing. */
   proxy?: { server: string; username?: string; password?: string };
   /** Leave the profile in `provisioning` (required before a signup task). */
   stayProvisioning?: boolean;
+  log?: ProvisionLog;
 }
 
 export interface ProvisionedBundle {
@@ -28,20 +36,27 @@ export async function provisionProfile(
   workerKey: string,
   opts: ProvisionOptions,
 ): Promise<ProvisionedBundle> {
+  const log = opts.log ?? {};
+  const info = log.info ?? ((m: string) => console.log(m));
+  const phase = log.phase;
+
   const profileId = await client.mutation(api.profiles.create, {
     workerKey,
     name: opts.name,
     chromeVersion: process.env.PINNED_CHROME_VERSION,
   });
-  console.log(`profile created: ${profileId}`);
+  info(`profile created: ${profileId}`);
 
-  console.log("generating persona (LLM)...");
+  if (phase) phase("generating persona (LLM)...");
+  else info("generating persona (LLM)...");
   const persona = PersonaSchema.parse(
     await generatePersona({
       seed: profileId,
       geo: opts.geo,
       timezone: opts.timezone,
       roleArchetype: opts.role,
+      model: opts.personaModel,
+      userPrompt: opts.personaPrompt,
     }),
   );
   const personaId = await client.mutation(api.personas.create, {
@@ -51,7 +66,7 @@ export async function provisionProfile(
     data: persona,
   });
   await client.mutation(api.personas.attachToProfile, { workerKey, profileId, personaId });
-  console.log(`persona attached: ${personaId} (${persona.fullName}, ${persona.role})`);
+  info(`persona generated: ${persona.fullName} (${persona.role})`);
 
   const launchConfig = generateLaunchConfig({
     profileKey: profileId,
@@ -69,9 +84,9 @@ export async function provisionProfile(
     profileId,
     launchConfigId,
   });
-  console.log(
-    `launchConfig attached: ${launchConfigId} (${launchConfig.timezone}, ${launchConfig.locale}, ` +
-      `${launchConfig.windowWidth}x${launchConfig.windowHeight}, chrome ${launchConfig.chromeVersion})`,
+  info(
+    `launch config: ${launchConfig.timezone}, ${launchConfig.locale}, ` +
+      `${launchConfig.windowWidth}x${launchConfig.windowHeight}`,
   );
 
   if (opts.proxy) {
@@ -84,13 +99,13 @@ export async function provisionProfile(
       geo: opts.geo,
     });
     await client.mutation(api.proxies.attachToProfile, { workerKey, profileId, proxyBindingId });
-    console.log(`proxy attached: ${proxyBindingId} (${opts.proxy.server}, ${opts.geo})`);
+    info(`proxy attached: ${opts.proxy.server} (${opts.geo})`);
   } else {
-    console.log("no proxy attached (direct connection — manual/local profile)");
+    info("no proxy attached (direct connection)");
   }
 
   if (opts.stayProvisioning) {
-    console.log("staying in provisioning (signup task will promote to warming)");
+    info("staying in provisioning (signup will promote to warming)");
   } else {
     await client.mutation(api.profiles.transition, {
       workerKey,

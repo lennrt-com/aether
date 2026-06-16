@@ -91,6 +91,26 @@ export const setUnipileAccount = mutation({
   },
 });
 
+export const setLinkedInProfileUrl = mutation({
+  args: {
+    workerKey: v.string(),
+    profileId: v.id("profiles"),
+    linkedInProfileUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertWorkerKey(args.workerKey);
+    await ctx.db.patch(args.profileId, { linkedInProfileUrl: args.linkedInProfileUrl });
+    await appendEvent(ctx, {
+      profileId: args.profileId,
+      type: "ProfileProvisioned",
+      ts: Date.now(),
+      channel: "system",
+      data: { component: "linkedInProfileUrl", linkedInProfileUrl: args.linkedInProfileUrl },
+      ctx: {},
+    });
+  },
+});
+
 export const transition = mutation({
   args: {
     workerKey: v.string(),

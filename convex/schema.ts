@@ -23,8 +23,21 @@ export default defineSchema({
     activeSessionId: v.optional(v.id("sessions")),
     hindsightBankId: v.optional(v.string()),
     unipileAccountId: v.optional(v.string()),   // added in Phase 8
+    linkedInProfileUrl: v.optional(v.string()), // canonical /in/{slug} after signup
     cohortTag: v.string(),                       // "default" for v1
     chromeVersion: v.string(),
+    maintained: v.optional(v.boolean()),           // false = not picked up by worker after reset
+  }).index("by_status", ["status"]),
+
+  proxyPool: defineTable({
+    label: v.string(),
+    server: v.string(),
+    username: v.optional(v.string()),
+    password: v.optional(v.string()),
+    geo: v.string(),
+    timezone: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("disabled")),
+    notes: v.optional(v.string()),
   }).index("by_status", ["status"]),
 
   personas: defineTable({
@@ -97,7 +110,7 @@ export default defineSchema({
     // Optional: manual (hands-on) sessions have no task/worker behind them.
     taskId: v.optional(v.id("tasks")),
     workerId: v.optional(v.id("workers")),
-    kind: v.optional(v.union(v.literal("task"), v.literal("manual"))),
+    kind: v.optional(v.union(v.literal("task"), v.literal("manual"), v.literal("pipeline"))),
     channel: v.union(v.literal("browser"), v.literal("api")),
     status: v.union(v.literal("running"), v.literal("done"), v.literal("failed")),
     startedAt: v.number(),

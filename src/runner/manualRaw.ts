@@ -28,6 +28,7 @@ import { createEmitter } from "./emit.js";
 import { resolveEgressIp } from "./session.js";
 import { startProxyRelay, type ProxyRelay } from "./proxy.js";
 import { resolveWebrtcIpPolicy, seedWebrtcPreference, webrtcFlags } from "./chromeFlags.js";
+import { clampWindowSize } from "../shared/constants.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
@@ -124,7 +125,8 @@ const chromeFlags: string[] = [
   ...webrtcFlags(webrtcPolicy),
 ];
 if (launchConfig) {
-  chromeFlags.push(`--window-size=${launchConfig.windowWidth},${launchConfig.windowHeight}`);
+  const win = clampWindowSize(launchConfig.windowWidth, launchConfig.windowHeight);
+  chromeFlags.push(`--window-size=${win.width},${win.height}`);
   if (launchConfig.locale) chromeFlags.push(`--lang=${launchConfig.locale}`);
 }
 if (relay) chromeFlags.push(`--proxy-server=${relay.server}`);

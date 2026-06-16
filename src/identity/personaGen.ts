@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
-import { google } from "@ai-sdk/google";
 import { z } from "zod";
+import { resolvePersonaModel } from "./personaModel.js";
 
 // Appendix D — persona zod schema. Stored verbatim in `personas.data`.
 export const PersonaSchema = z.object({
@@ -41,22 +41,33 @@ export async function generatePersona(input: {
   geo: string;
   timezone: string;
   roleArchetype: string;
+  model?: string;
+  userPrompt?: string;
 }): Promise<Persona> {
+  const lines = [
+    `Generate one distinct, realistic professional LinkedIn persona.`,
+    `Generation seed (use it to make the persona reproducible and distinct from other seeds): "${input.seed}".`,
+    `Constraints:`,
+    `- geo: ${input.geo} (set the "geo" field to exactly this value; name, industry and backstory must be plausible for it)`,
+    `- behavior.timezone must be exactly "${input.timezone}"`,
+    `- role archetype: ${input.roleArchetype}`,
+    `- backstory: max 1200 characters, first person, grounded and unremarkable (no extraordinary claims)`,
+    `- behavior.activeHours must fall inside plausible waking hours for a working professional in that timezone`,
+    `- behavior.weekdayActivity is 7 numbers 0..1 (Mon..Sun), weekends noticeably lower`,
+    `- behavior.actionMix is relative weights; warmup_feed and fetch_profile should dominate for a normal user`,
+  ];
+  if (input.userPrompt?.trim()) {
+    lines.push(
+      `Additional creative direction from the operator (incorporate naturally, do not contradict geo/timezone constraints):`,
+      input.userPrompt.trim(),
+    );
+  }
+
   const { object } = await generateObject({
-    model: google("gemini-3-flash-preview"),
+    model: resolvePersonaModel(input.model),
     schema: PersonaSchema,
-    prompt: [
-      `Generate one distinct, realistic professional LinkedIn persona.`,
-      `Generation seed (use it to make the persona reproducible and distinct from other seeds): "${input.seed}".`,
-      `Constraints:`,
-      `- geo: ${input.geo} (set the "geo" field to exactly this value; name, industry and backstory must be plausible for it)`,
-      `- behavior.timezone must be exactly "${input.timezone}"`,
-      `- role archetype: ${input.roleArchetype}`,
-      `- backstory: max 1200 characters, first person, grounded and unremarkable (no extraordinary claims)`,
-      `- behavior.activeHours must fall inside plausible waking hours for a working professional in that timezone`,
-      `- behavior.weekdayActivity is 7 numbers 0..1 (Mon..Sun), weekends noticeably lower`,
-      `- behavior.actionMix is relative weights; warmup_feed and fetch_profile should dominate for a normal user`,
-    ].join("\n"),
+    prompt: lines.join("\n"),
+    allowSystemInMessages: true,
   });
   return object;
 }

@@ -6,15 +6,20 @@
     "node": ">=20"
   },
   "bin": {
-    "bless": "src/cli/bless.js"
+    "bless": "bin/bless.mjs"
   },
   "scripts": {
+    "bless": "tsx src/cli/index.ts",
+    "link-cli": "node scripts/link-cli.mjs",
+    "refresh-path": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/refresh-path.ps1",
     "worker": "tsx src/worker/main.ts",
     "cli": "tsx src/cli/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.84",
     "@ai-sdk/google": "^3.0.80",
     "@browserbasehq/stagehand": "^3.0.0",
+    "@inquirer/prompts": "^8.5.2",
     "ai": "^6.0.201",
     "chrome-launcher": "^1.2.1",
     "commander": "^15.0.0",

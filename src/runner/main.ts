@@ -3,32 +3,31 @@
 import "../shared/env.js";
 import { ConvexHttpClient } from "convex/browser";
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 import { api } from "../../convex/_generated/api.js";
 import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { createEmitter } from "./emit.js";
 import { classifyPage } from "./classify.js";
-import { launchSession, DEFAULT_MODEL } from "./session.js";
-import { runSignup, runLogin } from "./signup.js";
+import { evalInPage } from "./cdpEval.js";
+import { launchSession } from "./session.js";
+import { resolveAgentModel } from "../shared/agentModels.js";
+import { runLogin } from "./signup.js";
 import { runPreflight } from "./preflight.js";
 import { runFingerprintCheck } from "./fingerprintCheck.js";
-import { buildBehavior, type PersonaLike } from "./behaviors.js";
+import {
+  buildBehavior,
+  needsFeedSettle,
+  type PersonaLike,
+  withDirectActInstruction,
+} from "./behaviors.js";
+import { settlePage } from "./settle.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
+import { runSignupSession, type SessionBundle } from "./sessionFlow.js";
 
-export interface RunnerBundle {
-  task: Doc<"tasks"> | null;
-  profile: Doc<"profiles">;
-  persona: Doc<"personas"> | null;
-  launchConfig: Doc<"launchConfigs"> | null;
-  proxyBinding: Doc<"proxyBindings"> | null;
-  currentSnapshot: Doc<"profileSnapshots"> | null;
-  sessionId: Id<"sessions">;
-  strategyVersionId: Id<"strategyVersions"> | null;
-}
+export interface RunnerBundle extends SessionBundle {}
 
 const raw = process.argv[2];
 if (!raw) throw new Error("runner: missing bundle JSON argument");
@@ -36,12 +35,21 @@ const bundle = JSON.parse(raw) as RunnerBundle;
 if (!bundle.task) throw new Error("runner: bundle has no task");
 const task = bundle.task;
 
+const taskPayload = (task.payload ?? {}) as {
+  url?: string;
+  instruction?: string;
+  evaluate?: string;
+  maxSteps?: number;
+  skipPreflight?: boolean;
+  model?: string;
+};
+const agentModel = resolveAgentModel(taskPayload.model);
+
 const convexUrl = process.env.CONVEX_URL;
 const workerKey = process.env.WORKER_KEY;
 if (!convexUrl || !workerKey) throw new Error("runner: CONVEX_URL/WORKER_KEY not set");
 
 const convex = new ConvexHttpClient(convexUrl);
-const stagehandVersion = readStagehandVersion();
 
 const emit = createEmitter({
   convex,
@@ -54,10 +62,23 @@ const emit = createEmitter({
     launchConfigHash: bundle.launchConfig?.hash,
     personaVersion: bundle.persona?.version,
     strategyVersionId: bundle.strategyVersionId ?? undefined,
-    model: DEFAULT_MODEL,
-    stagehandVersion,
+    model: agentModel,
   },
 });
+
+// Signup uses the shared sequenced flow.
+if (task.type === "signup") {
+  const result = await runSignupSession({
+    convex,
+    workerKey,
+    emit,
+    bundle,
+    maxSteps: taskPayload.maxSteps,
+    skipPreflight: taskPayload.skipPreflight,
+    model: taskPayload.model,
+  });
+  process.exit(result.exitCode);
+}
 
 const profilesDir = process.env.PROFILES_DIR ?? "./.profiles";
 const userDataDir = path.resolve(profilesDir, bundle.profile._id);
@@ -83,6 +104,7 @@ await emit("FingerprintLoaded", {
 const session = await launchSession({
   userDataDir,
   headless: process.env.HEADLESS === "true",
+  model: agentModel,
   locale: bundle.launchConfig?.locale,
   viewport: bundle.launchConfig
     ? { width: bundle.launchConfig.windowWidth, height: bundle.launchConfig.windowHeight }
@@ -103,9 +125,6 @@ const session = await launchSession({
           languages: localeToLanguages(bundle.launchConfig.locale),
         }
       : undefined,
-  // Base args only. launchSession merges in the WebRTC + stealth hardening
-  // (see chromeFlags.ts); --password-store=basic keeps profiles portable across
-  // Linux hosts and is harmless on Windows dev.
   args: ["--password-store=basic"],
 });
 
@@ -118,59 +137,13 @@ await convex.mutation(api.tasks.setSessionEgress, {
 
 let exitCode = 0;
 try {
-  const BROWSER_TASK_TYPES = ["browse", "signup", "login", "warmup_feed", "engage_post"];
+  const BROWSER_TASK_TYPES = ["browse", "login", "warmup_feed", "engage_post"];
   if (!BROWSER_TASK_TYPES.includes(task.type)) {
     throw new Error(`unsupported task type: ${task.type}`);
   }
-  const payload = (task.payload ?? {}) as {
-    url?: string;
-    instruction?: string;
-    evaluate?: string;
-    maxSteps?: number;
-    skipPreflight?: boolean;
-  };
+  const payload = taskPayload;
 
-  // Gate: before creating a LinkedIn account, prove the proxy + fingerprint are
-  // clean. A leaky setup aborts here so no account is ever born behind it.
-  const preflightOn = task.type === "signup" && payload.skipPreflight !== true && process.env.PREFLIGHT !== "false";
-  const fingerprintCheckOn =
-    task.type === "signup" &&
-    payload.skipPreflight !== true &&
-    process.env.PREFLIGHT_FINGERPRINT !== "false" &&
-    process.env.FINGERPRINT_SPOOF !== "false";
-  if (preflightOn) {
-    const preflight = await runPreflight({
-      stagehand: session.stagehand,
-      emit,
-      egressIp: session.egressIp,
-      expectedGeo: bundle.proxyBinding?.geo,
-    });
-    if (!preflight.ok) {
-      await emit("ActionFailed", { phase: "preflight", error: preflight.summary }, randomUUID());
-      exitCode = 1;
-    }
-  }
-
-  if (exitCode === 0 && fingerprintCheckOn) {
-    const fpCheck = await runFingerprintCheck({
-      stagehand: session.stagehand,
-      convex,
-      workerKey,
-      profileId: bundle.profile._id,
-      emit,
-    });
-    if (!fpCheck.ok) {
-      await emit(
-        "ActionFailed",
-        { phase: "fingerprint_check", error: fpCheck.reasons.join("; ") },
-        randomUUID(),
-      );
-      exitCode = 1;
-    }
-  }
-
-  if (exitCode === 0 && (task.type === "signup" || task.type === "login")) {
-    // Account flows own their full action lifecycle (events, creds, transitions).
+  if (task.type === "login") {
     const flowDeps = {
       stagehand: session.stagehand,
       convex,
@@ -179,17 +152,22 @@ try {
       profile: bundle.profile,
       persona: bundle.persona,
       maxSteps: payload.maxSteps,
+      proxy: bundle.proxyBinding
+        ? {
+            server: bundle.proxyBinding.server,
+            username: bundle.proxyBinding.username,
+            password: bundle.proxyBinding.password,
+          }
+        : undefined,
     };
     try {
-      const ok = task.type === "signup" ? await runSignup(flowDeps) : await runLogin(flowDeps);
+      const ok = await runLogin(flowDeps);
       if (!ok) exitCode = 1;
     } catch (err) {
       await emit("ActionFailed", { error: String(err) }, randomUUID());
       exitCode = 1;
     }
-  } else if (exitCode === 0) {
-    // browse / warmup_feed / engage_post — fall back to persona-driven LinkedIn
-    // behaviors when the payload carries no explicit instruction.
+  } else {
     const personaLike = (bundle.persona?.data ?? null) as PersonaLike | null;
     const behavior = payload.instruction ? null : buildBehavior(task.type, personaLike);
     const url = payload.url ?? behavior?.url ?? process.env.START_URL ?? "https://example.com";
@@ -207,10 +185,25 @@ try {
       const page = session.stagehand.context.activePage();
       if (!page) throw new Error("no active page after launch");
       await page.goto(url, { waitUntil: "load" });
+
+      if (needsFeedSettle(task.type, url)) {
+        const settleId = `${actionId}:settle`;
+        await emit("ActionStarted", { phase: "feed_settle", url }, settleId);
+        try {
+          await settlePage(page, { scroll: true });
+          await emit("ActionSucceeded", { phase: "feed_settle", url }, settleId);
+        } catch (err) {
+          await emit(
+            "ActionFailed",
+            { phase: "feed_settle", error: String(err) },
+            settleId,
+          );
+        }
+      }
+
       const pageState = await classifyPage(session.stagehand, emit, actionId);
 
       if (pageState === "login" && (task.type === "warmup_feed" || task.type === "engage_post")) {
-        // Session expired: surface the anomaly, queue a login, fail this task.
         await emit("AnomalyObserved", { reason: "login_wall", taskType: task.type }, actionId);
         await convex.mutation(api.tasks.enqueue, {
           workerKey,
@@ -227,19 +220,19 @@ try {
       } else {
         let evalResult: unknown;
         if (payload.evaluate) {
-          evalResult = await page.evaluate(payload.evaluate);
+          evalResult = await evalInPage(page, payload.evaluate);
           await emit("ActionSucceeded", { evaluate: payload.evaluate, evalResult }, `${actionId}:eval`);
         }
 
         if (!instruction) {
           await emit("ActionSucceeded", { message: "browse completed (no instruction)", evalResult }, actionId);
         } else {
+          const agentInstruction = withDirectActInstruction(instruction);
           const agent = session.stagehand.agent({ mode: "hybrid" });
           const result = await agent.execute({
-            instruction,
+            instruction: agentInstruction,
             maxSteps,
           });
-          // Per-step audit events from the agent trace (callbacks are experimental in v3).
           for (let i = 0; i < result.actions.length; i++) {
             const action = result.actions[i];
             await emit(
@@ -268,8 +261,7 @@ try {
         }
       }
     } catch (err) {
-      // Recorded via events, then fails the task through the exit code.
-      await emit("ActionFailed", { error: String(err) }, actionId);
+      await emit("ActionFailed", { error: String(err) }, randomUUID());
       exitCode = 1;
     }
   }
@@ -277,7 +269,6 @@ try {
   await session.close();
 }
 
-// Archive only after Chrome is fully closed.
 const snapshot = await snapshotProfile({
   profileDir: userDataDir,
   blobStore,
@@ -294,12 +285,6 @@ await emit("SnapshotCommitted", {
 });
 
 process.exit(exitCode);
-
-function readStagehandVersion(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require("@browserbasehq/stagehand/package.json") as { version: string };
-  return pkg.version;
-}
 
 function localeToLanguages(locale: string): string[] {
   const base = locale.split("-")[0];

@@ -126,6 +126,7 @@ export const claimNext = mutation({
       const profile = await ctx.db.get(task.profileId);
       if (!profile) continue;
       if (profile.activeSessionId !== undefined) continue;
+      if (profile.maintained === false) continue;
       const claimable =
         CLAIMABLE_STATUSES.includes(profile.status) ||
         (profile.status === "provisioning" && PROVISIONING_TASK_TYPES.includes(task.type));

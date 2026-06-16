@@ -18,6 +18,7 @@ import { api } from "../../convex/_generated/api.js";
 import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { createEmitter } from "./emit.js";
 import { launchSession } from "./session.js";
+import { resolveAgentModel } from "../shared/agentModels.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
@@ -37,6 +38,7 @@ const { values, positionals } = parseArgs({
     url: { type: "string" },
     instruction: { type: "string" },
     "max-steps": { type: "string" },
+    model: { type: "string" },
   },
 });
 
@@ -86,6 +88,7 @@ await emit("FingerprintLoaded", {
 const session = await launchSession({
   userDataDir,
   headless: false, // watch it live
+  model: resolveAgentModel(values.model),
   locale: launchConfig?.locale,
   viewport: launchConfig
     ? { width: launchConfig.windowWidth, height: launchConfig.windowHeight }
@@ -120,9 +123,11 @@ const startUrl =
   values.url ?? process.env.MANUAL_START_URL ?? process.env.FINGERPRINT_SCANNER_URL ?? DEFAULT_START_URL;
 const instruction = values.instruction ?? DEFAULT_INSTRUCTION;
 const maxSteps = values["max-steps"] ? Number(values["max-steps"]) : DEFAULT_MAX_STEPS;
+const model = resolveAgentModel(values.model);
 
 console.log("\n=== agent test live ===");
 console.log(`profile:          ${profile.name} (${profile._id})`);
+console.log(`model:            ${model}`);
 console.log(`egress IP:        ${session.egressIp}`);
 console.log(`proxy:            ${proxyBinding ? `${proxyBinding.server} (${proxyBinding.geo})` : "none (direct)"}`);
 console.log(`fingerprint seed: ${launchConfig?.fingerprintSeed ?? "(none — re-provision to enable)"}`);

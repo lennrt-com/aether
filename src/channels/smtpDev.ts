@@ -32,6 +32,7 @@ export interface SmtpDevMessage {
   subject?: string;
   intro?: string;
   text?: string;
+  html?: string | Record<string, unknown>;
   createdAt?: string;
 }
 
@@ -42,6 +43,8 @@ export interface SmtpDevClient {
   findInbox(accountId: string): Promise<SmtpDevMailbox>;
   /** GET /accounts/{id}/mailboxes/{id}/messages — newest first. */
   listMessages(accountId: string, mailboxId: string): Promise<SmtpDevMessage[]>;
+  /** GET /accounts/{id}/mailboxes/{id}/messages/{id} — full body (list view can omit text). */
+  getMessage(accountId: string, mailboxId: string, messageId: string): Promise<SmtpDevMessage>;
   /**
    * Poll the inbox until a message from LinkedIn with a 6-digit code arrives.
    * Returns null on timeout.
@@ -54,14 +57,28 @@ export interface SmtpDevClient {
 }
 
 const CODE_RE = /\b(\d{6})\b/;
-const DEFAULT_SENDER_RE = /linkedin/i;
+const DEFAULT_SENDER_RE = /linkedin|microsoft|office365/i;
+
+function htmlToText(html: unknown): string {
+  if (typeof html === "string") return html;
+  if (html && typeof html === "object" && "body" in html && typeof html.body === "string") {
+    return html.body;
+  }
+  return "";
+}
 
 export function extractVerificationCode(msg: SmtpDevMessage): string | null {
-  for (const field of [msg.subject, msg.intro, msg.text]) {
+  for (const field of [msg.subject, msg.intro, msg.text, htmlToText(msg.html)]) {
     const match = field?.match(CODE_RE);
     if (match) return match[1];
   }
   return null;
+}
+
+/** smtp.dev returns either `{ member: T[] }` (docs) or a bare `T[]` (live API). */
+function unwrapCollection<T>(body: T[] | { member?: T[] }): T[] {
+  if (Array.isArray(body)) return body;
+  return body.member ?? [];
 }
 
 export function createSmtpDevClient(
@@ -88,21 +105,41 @@ export function createSmtpDevClient(
   }
 
   async function findInbox(accountId: string): Promise<SmtpDevMailbox> {
-    const res = await request<{ member?: SmtpDevMailbox[] }>(
+    const res = await request<SmtpDevMailbox[] | { member?: SmtpDevMailbox[] }>(
       "GET",
       `/accounts/${accountId}/mailboxes`,
     );
-    const inbox = res.member?.find((m) => m.path.toUpperCase() === "INBOX");
+    const mailboxes = unwrapCollection(res);
+    const inbox = mailboxes.find((m) => m.path.toUpperCase() === "INBOX");
     if (!inbox) throw new Error(`no INBOX mailbox for smtp.dev account ${accountId}`);
     return inbox;
   }
 
   async function listMessages(accountId: string, mailboxId: string): Promise<SmtpDevMessage[]> {
-    const res = await request<{ member?: SmtpDevMessage[] }>(
+    const res = await request<SmtpDevMessage[] | { member?: SmtpDevMessage[] }>(
       "GET",
       `/accounts/${accountId}/mailboxes/${mailboxId}/messages`,
     );
-    return res.member ?? [];
+    return unwrapCollection(res);
+  }
+
+  async function getMessage(
+    accountId: string,
+    mailboxId: string,
+    messageId: string,
+  ): Promise<SmtpDevMessage> {
+    return request("GET", `/accounts/${accountId}/mailboxes/${mailboxId}/messages/${messageId}`);
+  }
+
+  async function resolveCode(
+    accountId: string,
+    mailboxId: string,
+    msg: SmtpDevMessage,
+  ): Promise<string | null> {
+    let code = extractVerificationCode(msg);
+    if (code) return code;
+    const full = await getMessage(accountId, mailboxId, msg.id);
+    return extractVerificationCode(full);
   }
 
   return {
@@ -110,6 +147,7 @@ export function createSmtpDevClient(
       request("POST", "/accounts", { address, password }),
     findInbox,
     listMessages,
+    getMessage,
     waitForVerificationCode: async (accountId, mailboxId, opts) => {
       const timeoutMs = opts?.timeoutMs ?? 120_000;
       const pollMs = opts?.pollMs ?? 5_000;
@@ -120,7 +158,12 @@ export function createSmtpDevClient(
         for (const msg of messages) {
           const sender = `${msg.from?.address ?? ""} ${msg.from?.name ?? ""}`;
           if (!senderRe.test(sender)) continue;
-          const code = extractVerificationCode(msg);
+          const code = await resolveCode(accountId, mailboxId, msg);
+          if (code) return { code, messageId: msg.id, subject: msg.subject ?? "" };
+        }
+        // Fallback: any inbox message with a 6-digit code (LinkedIn senders vary by locale).
+        for (const msg of messages) {
+          const code = await resolveCode(accountId, mailboxId, msg);
           if (code) return { code, messageId: msg.id, subject: msg.subject ?? "" };
         }
         if (Date.now() + pollMs > deadline) return null;

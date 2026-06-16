@@ -9,8 +9,12 @@ import {
   seedWebrtcPreference,
 } from "./chromeFlags.js";
 import { applyFingerprint, type FingerprintConfig } from "./fingerprint/patch.js";
+import { installRecaptchaBridge } from "./recaptchaBridge.js";
+import { DEFAULT_AGENT_MODEL } from "../shared/agentModels.js";
+import { clampWindowSize } from "../shared/constants.js";
+import { formatStagehandLog } from "../orchestrator/reporter.js";
 
-export const DEFAULT_MODEL = "google/gemini-3-flash-preview";
+export const DEFAULT_MODEL = DEFAULT_AGENT_MODEL;
 
 export interface SessionConfig {
   userDataDir: string;
@@ -22,6 +26,7 @@ export interface SessionConfig {
   args?: string[];
   model?: string;
   fingerprint?: FingerprintConfig;
+  onLog?: (line: string) => void;
 }
 
 export interface RunningSession {
@@ -71,18 +76,30 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
   const ignoreDefaultArgs: boolean | undefined =
     process.env.LAUNCH_INHERIT_DEFAULTS === "1" ? undefined : true;
 
+  const viewport = cfg.viewport
+    ? clampWindowSize(cfg.viewport.width, cfg.viewport.height)
+    : undefined;
+
   const stagehand = new Stagehand({
     env: "LOCAL",
     model: cfg.model ?? DEFAULT_MODEL,
     // Required for agent custom tools + output schema (signup email tools).
     experimental: true,
     disableAPI: true,
+    ...(cfg.onLog
+      ? {
+          logger: (line: unknown) => {
+            const formatted = formatStagehandLog(line);
+            if (formatted) cfg.onLog!(formatted);
+          },
+        }
+      : {}),
     localBrowserLaunchOptions: {
       userDataDir: cfg.userDataDir,
       ...(cfg.executablePath ? { executablePath: cfg.executablePath } : {}),
       headless: cfg.headless ?? false,
       ...(cfg.locale ? { locale: cfg.locale } : {}),
-      ...(cfg.viewport ? { viewport: cfg.viewport } : {}),
+      ...(viewport ? { viewport } : {}),
       ...(relay ? { proxy: { server: relay.server } } : {}),
       ...(hardenedArgs.length > 0 ? { args: hardenedArgs } : {}),
       ...(ignoreDefaultArgs !== undefined ? { ignoreDefaultArgs } : {}),
@@ -98,6 +115,11 @@ export async function launchSession(cfg: SessionConfig): Promise<RunningSession>
     if (cfg.fingerprint) {
       await applyFingerprint(stagehand.context, cfg.fingerprint);
     }
+    // Pre-inject the main-world reCAPTCHA token bridge so solved tokens can be
+    // applied via grecaptcha.getResponse()/callback inside every frame (incl.
+    // the LinkedIn checkpoint iframe) without ever enabling the Runtime domain.
+    const bridgePage = stagehand.context.activePage();
+    if (bridgePage) await installRecaptchaBridge(bridgePage);
   } catch (err) {
     if (relay) await relay.close();
     throw err;

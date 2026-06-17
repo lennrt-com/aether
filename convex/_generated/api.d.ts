@@ -9,13 +9,16 @@
  */
 
 import type * as age from "../age.js";
+import type * as auth from "../auth.js";
 import type * as credentials from "../credentials.js";
 import type * as crons from "../crons.js";
+import type * as dashboard from "../dashboard.js";
 import type * as events from "../events.js";
 import type * as fingerprints from "../fingerprints.js";
 import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as launchConfigs from "../launchConfigs.js";
+import type * as lib_auth from "../lib/auth.js";
 import type * as lib_guards from "../lib/guards.js";
 import type * as lib_profileAge from "../lib/profileAge.js";
 import type * as lib_unipile from "../lib/unipile.js";
@@ -41,13 +44,16 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   age: typeof age;
+  auth: typeof auth;
   credentials: typeof credentials;
   crons: typeof crons;
+  dashboard: typeof dashboard;
   events: typeof events;
   fingerprints: typeof fingerprints;
   health: typeof health;
   http: typeof http;
   launchConfigs: typeof launchConfigs;
+  "lib/auth": typeof lib_auth;
   "lib/guards": typeof lib_guards;
   "lib/profileAge": typeof lib_profileAge;
   "lib/unipile": typeof lib_unipile;

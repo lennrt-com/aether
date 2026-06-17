@@ -18,7 +18,9 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.84",
     "@ai-sdk/google": "^3.0.80",
+    "@auth/core": "0.41.1",
     "@browserbasehq/stagehand": "^3.0.0",
+    "@convex-dev/auth": "^0.0.94",
     "@faker-js/faker": "^10.4.0",
     "@inquirer/prompts": "^8.5.2",
     "ai": "^6.0.201",
@@ -34,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "jose": "^6.2.3",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

@@ -1,3 +1,4 @@
+import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -11,6 +12,7 @@ export const taskStatus = v.union(
   v.literal("failed"), v.literal("cancelled"));
 
 export default defineSchema({
+  ...authTables,
   profiles: defineTable({
     name: v.string(),
     status: profileStatus,

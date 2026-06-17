@@ -10,6 +10,7 @@
 
 import type * as age from "../age.js";
 import type * as auth from "../auth.js";
+import type * as campaigns from "../campaigns.js";
 import type * as credentials from "../credentials.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
@@ -45,6 +46,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   age: typeof age;
   auth: typeof auth;
+  campaigns: typeof campaigns;
   credentials: typeof credentials;
   crons: typeof crons;
   dashboard: typeof dashboard;

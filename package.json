@@ -13,7 +13,9 @@
     "link-cli": "node scripts/link-cli.mjs",
     "refresh-path": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/refresh-path.ps1",
     "worker": "tsx src/worker/main.ts",
-    "cli": "tsx src/cli/index.ts"
+    "cli": "tsx src/cli/index.ts",
+    "verify:patch": "node scripts/verify-stealth-patch.mjs",
+    "postinstall": "node scripts/verify-stealth-patch.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.84",

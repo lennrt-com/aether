@@ -11,6 +11,13 @@ export const taskStatus = v.union(
   v.literal("pending"), v.literal("claimed"), v.literal("done"),
   v.literal("failed"), v.literal("cancelled"));
 
+export const campaignStatus = v.union(
+  v.literal("running"), v.literal("paused"),
+  v.literal("cancelled"), v.literal("done"));
+
+export const campaignProxyStrategy = v.union(
+  v.literal("rotate_pool"), v.literal("single"));
+
 export default defineSchema({
   ...authTables,
   profiles: defineTable({
@@ -35,9 +42,11 @@ export default defineSchema({
     restrictedAt: v.optional(v.number()),          // timestamp of first restriction
     restrictedAtPhase: v.optional(profileStatus),  // lifecycle phase when restricted (benchmark)
     restrictionSource: v.optional(v.string()),     // e.g. unipile_probe, browser
+    campaignId: v.optional(v.id("campaigns")),
   })
     .index("by_status", ["status"])
-    .index("by_isRestricted", ["isRestricted"]),
+    .index("by_isRestricted", ["isRestricted"])
+    .index("by_campaign", ["campaignId"]),
 
   proxyPool: defineTable({
     label: v.string(),
@@ -186,4 +195,24 @@ export default defineSchema({
     lastHeartbeatAt: v.number(),
     maxSessions: v.number(),
   }),
+
+  campaigns: defineTable({
+    name: v.string(),
+    status: campaignStatus,
+    targetHealthy: v.number(),
+    maxPerHour: v.number(),
+    cohortTag: v.string(),
+    geo: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    role: v.optional(v.string()),
+    agentModel: v.optional(v.string()),
+    personaModel: v.optional(v.string()),
+    personaPrompt: v.optional(v.string()),
+    location: v.optional(v.string()),
+    skipPreflight: v.optional(v.boolean()),
+    proxyStrategy: campaignProxyStrategy,
+    proxyPoolId: v.optional(v.id("proxyPool")),
+    lastAttemptStartedAt: v.optional(v.number()),
+    proxyCursor: v.optional(v.number()),
+  }).index("by_status", ["status"]),
 });

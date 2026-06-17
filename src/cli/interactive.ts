@@ -15,6 +15,7 @@ import {
   promptParallelProxyRotation,
 } from "./createShared.js";
 import { convex, acctStamp, spawnBlessCli, spawnTsxScript, spawnTsxScriptTagged } from "./helpers.js";
+import { runCampaign } from "../campaign/main.js";
 
 export type { CreateOptions, CreateParallelOptions };
 
@@ -433,6 +434,7 @@ export async function showMainMenu(): Promise<void> {
     choices: [
       { name: "Create account (interactive signup)", value: "create" },
       { name: "Create accounts in parallel", value: "create-parallel" },
+      { name: "Run account campaign (sequential, rate-limited)", value: "campaign" },
       { name: "Run experiment (agent prompt)", value: "experiment" },
       { name: "List profiles", value: "profiles" },
       { name: "Fleet status", value: "status" },
@@ -449,6 +451,9 @@ export async function showMainMenu(): Promise<void> {
       break;
     case "create-parallel":
       process.exitCode = await runCreateParallelInteractive({});
+      break;
+    case "campaign":
+      process.exitCode = await runCampaign({});
       break;
     case "experiment":
       process.exitCode = await runExperimentInteractive({});

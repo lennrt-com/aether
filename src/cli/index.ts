@@ -10,6 +10,13 @@ import { AGENT_MODEL_CHOICES, resolveAgentModel } from "../shared/agentModels.js
 import { timezoneForGeo } from "../shared/geo.js";
 import { convex, table, fmtTs, acctStamp, resolveProxyForCli, type ProxyPoolEntry } from "./helpers.js";
 import { runCreateInteractive, runCreateParallelInteractive, runExperimentInteractive, runExperimentAll, runRemoveProfiles, runReset, showMainMenu } from "./interactive.js";
+import {
+  runCampaign,
+  listCampaigns,
+  showCampaignStatus,
+  setCampaignStatus,
+  type CampaignRunOptions,
+} from "../campaign/main.js";
 
 const program = new Command();
 program
@@ -717,6 +724,93 @@ program
       priority: Number(opts.priority),
     });
     console.log(`enqueued ${type} task: ${taskId}`);
+  });
+
+// ------------------------------------------------------------------ campaign
+const campaignCmd = program
+  .command("campaign")
+  .description("sequential account-creation campaigns (one browser at a time, rate-limited)");
+
+campaignCmd
+  .command("run")
+  .description("start or resume a campaign that provisions + signs up accounts sequentially")
+  .option("--id <campaignId>", "resume an existing campaign")
+  .option("--name <name>", "campaign name (new campaigns only)")
+  .option("--target <n>", "target healthy (non-restricted) account count")
+  .option("--per-hour <n>", "max signup starts per hour (even spacing)")
+  .option("--geo <geo>", "persona/proxy geo")
+  .option("--tz <timezone>", "IANA timezone")
+  .option("--role <role>", "persona role archetype", "experienced professional")
+  .option("--proxy-pool-id <id>", "proxy pool entry id (single strategy)")
+  .option("--proxy-server <hostPort>", "proxy server (bypasses pool)")
+  .option("--proxy-user <user>")
+  .option("--proxy-pass <pass>")
+  .option("--no-proxy", "launch without a proxy")
+  .option("--proxy-strategy <strategy>", "rotate_pool | single", "rotate_pool")
+  .option("--persona-prompt <text>")
+  .option("--persona-model <alias>")
+  .option("--location <city>")
+  .option("--skip-preflight")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .option("--probe-interval <minutes>", "extra restriction probe interval for campaign members (0=off)")
+  .action(async (opts) => {
+    const runOpts: CampaignRunOptions = {
+      id: opts.id,
+      name: opts.name,
+      target: opts.target ? Number(opts.target) : undefined,
+      perHour: opts.perHour ? Number(opts.perHour) : undefined,
+      geo: opts.geo,
+      tz: opts.tz,
+      role: opts.role,
+      proxyPoolId: opts.proxyPoolId,
+      noProxy: opts.proxy === false,
+      proxyServer: opts.proxyServer,
+      proxyUser: opts.proxyUser,
+      proxyPass: opts.proxyPass,
+      proxyStrategy: opts.proxyStrategy as "rotate_pool" | "single" | undefined,
+      personaPrompt: opts.personaPrompt,
+      personaModel: opts.personaModel,
+      location: opts.location,
+      skipPreflight: opts.skipPreflight,
+      model: opts.model,
+      probeIntervalMs: opts.probeInterval ? Number(opts.probeInterval) * 60_000 : undefined,
+    };
+    process.exitCode = await runCampaign(runOpts);
+  });
+
+campaignCmd
+  .command("list")
+  .description("list all campaigns with progress")
+  .action(async () => {
+    await listCampaigns();
+  });
+
+campaignCmd
+  .command("status <campaignId>")
+  .description("show campaign details and member profiles")
+  .action(async (campaignId) => {
+    process.exitCode = await showCampaignStatus(campaignId);
+  });
+
+campaignCmd
+  .command("pause <campaignId>")
+  .description("pause a running campaign")
+  .action(async (campaignId) => {
+    process.exitCode = await setCampaignStatus(campaignId, "paused");
+  });
+
+campaignCmd
+  .command("resume <campaignId>")
+  .description("resume a paused campaign (use campaign run --id to attach a runner)")
+  .action(async (campaignId) => {
+    process.exitCode = await setCampaignStatus(campaignId, "running");
+  });
+
+campaignCmd
+  .command("cancel <campaignId>")
+  .description("cancel a campaign (runner exits on next check)")
+  .action(async (campaignId) => {
+    process.exitCode = await setCampaignStatus(campaignId, "cancelled");
   });
 
 // ------------------------------------------------------------------- worker

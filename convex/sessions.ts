@@ -57,9 +57,14 @@ export const openManual = mutation({
   },
 });
 
-// Foreground pipeline (bless create): session without a task/worker.
+// Foreground pipeline (bless create / bless experiment): session without a
+// task/worker. taskType labels the pipeline in events (default: signup).
 export const openPipeline = mutation({
-  args: { workerKey: v.string(), profileId: v.id("profiles") },
+  args: {
+    workerKey: v.string(),
+    profileId: v.id("profiles"),
+    taskType: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     assertWorkerKey(args.workerKey);
     const profile = await ctx.db.get(args.profileId);
@@ -70,6 +75,7 @@ export const openPipeline = mutation({
       );
     }
 
+    const taskType = args.taskType ?? "signup";
     const now = Date.now();
     const strategy = await getActiveStrategy(ctx, profile.cohortTag);
     const sessionId = await ctx.db.insert("sessions", {
@@ -87,7 +93,7 @@ export const openPipeline = mutation({
       type: "SessionStarted",
       ts: now,
       channel: "browser",
-      data: { kind: "pipeline", taskType: "signup" },
+      data: { kind: "pipeline", taskType },
       ctx: { strategyVersionId: strategy?._id },
     });
 

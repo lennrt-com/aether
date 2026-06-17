@@ -69,8 +69,13 @@ export const append = mutation({
     const id = await appendEvent(ctx, envelope);
     // Soft-signal events feed the health state machine in the same transaction.
     if (isSignalEvent(envelope.type)) {
+      const data = (envelope.data ?? {}) as { source?: string };
       await evaluateCore(ctx, envelope.profileId, {
         restrictionDetected: envelope.type === "RestrictionDetected",
+        restrictionSource:
+          envelope.type === "RestrictionDetected"
+            ? (data.source ?? "browser")
+            : undefined,
       });
     }
     return id;

@@ -1,6 +1,23 @@
 import { mutation, query, internalMutation } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { assertWorkerKey } from "./lib/guards";
+
+async function deleteSnapshotRow(
+  ctx: {
+    db: import("./_generated/server").MutationCtx["db"];
+    storage: import("./_generated/server").MutationCtx["storage"];
+  },
+  snapshotId: Id<"profileSnapshots">,
+  storageId: string,
+): Promise<void> {
+  try {
+    await ctx.storage.delete(storageId);
+  } catch {
+    // blob may already be gone
+  }
+  await ctx.db.delete(snapshotId);
+}
 
 export const generateUploadUrl = mutation({
   args: { workerKey: v.string() },
@@ -27,6 +44,7 @@ export const deleteBlob = mutation({
 
 // Inserting the row and updating profiles.currentSnapshotId in one mutation
 // is the atomic commit point (composed with the single-session lease).
+// Latest-only: replaces all prior snapshot rows + blobs for this profile.
 export const commit = mutation({
   args: {
     workerKey: v.string(),
@@ -39,6 +57,15 @@ export const commit = mutation({
   },
   handler: async (ctx, args) => {
     assertWorkerKey(args.workerKey);
+
+    const existing = await ctx.db
+      .query("profileSnapshots")
+      .withIndex("by_profile", (q) => q.eq("profileId", args.profileId))
+      .collect();
+    for (const snap of existing) {
+      await deleteSnapshotRow(ctx, snap._id, snap.storageId);
+    }
+
     const snapshotId = await ctx.db.insert("profileSnapshots", {
       profileId: args.profileId,
       sessionId: args.sessionId,
@@ -74,44 +101,53 @@ export const listFor = query({
   },
 });
 
-function isoWeekKey(ts: number): string {
-  const d = new Date(ts);
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${date.getUTCFullYear()}-W${week}`;
-}
-
-// Daily retention: per profile keep the 5 newest snapshots + the newest per
-// ISO-week for the last 8 weeks; delete other rows AND their storage objects.
+// Safety net: keep only profiles.currentSnapshotId per profile (latest-only policy).
 export const applyRetention = internalMutation({
   args: {},
   handler: async (ctx) => {
     const profiles = await ctx.db.query("profiles").collect();
-    const eightWeeksAgo = Date.now() - 56 * 24 * 60 * 60 * 1000;
+    let deletedRows = 0;
+
     for (const profile of profiles) {
       const snapshots = await ctx.db
         .query("profileSnapshots")
         .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
-        .order("desc")
         .collect();
-      const keep = new Set<string>();
-      for (const snap of snapshots.slice(0, 5)) keep.add(snap._id);
-      const newestPerWeek = new Map<string, string>();
+
       for (const snap of snapshots) {
-        if (snap._creationTime < eightWeeksAgo) continue;
-        const week = isoWeekKey(snap._creationTime);
-        if (!newestPerWeek.has(week)) newestPerWeek.set(week, snap._id);
-      }
-      for (const id of newestPerWeek.values()) keep.add(id);
-      if (profile.currentSnapshotId) keep.add(profile.currentSnapshotId);
-      for (const snap of snapshots) {
-        if (keep.has(snap._id)) continue;
-        await ctx.storage.delete(snap.storageId);
-        await ctx.db.delete(snap._id);
+        if (profile.currentSnapshotId === snap._id) continue;
+        await deleteSnapshotRow(ctx, snap._id, snap.storageId);
+        deletedRows++;
       }
     }
+
+    return { deletedRows };
+  },
+});
+
+/** Worker-triggered one-time / manual enforcement of latest-only retention. */
+export const enforceLatestOnly = mutation({
+  args: { workerKey: v.string() },
+  handler: async (ctx, { workerKey }) => {
+    assertWorkerKey(workerKey);
+    const profiles = await ctx.db.query("profiles").collect();
+    let deletedRows = 0;
+    let bytesReclaimed = 0;
+
+    for (const profile of profiles) {
+      const snapshots = await ctx.db
+        .query("profileSnapshots")
+        .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+        .collect();
+
+      for (const snap of snapshots) {
+        if (profile.currentSnapshotId === snap._id) continue;
+        bytesReclaimed += snap.sizeBytes;
+        await deleteSnapshotRow(ctx, snap._id, snap.storageId);
+        deletedRows++;
+      }
+    }
+
+    return { deletedRows, bytesReclaimed };
   },
 });

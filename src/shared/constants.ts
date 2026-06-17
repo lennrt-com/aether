@@ -21,26 +21,41 @@ export const WORKER_STALE_MS = 120 * 1000;
 export const MAX_TASK_ATTEMPTS = 3;
 export const RETRY_BACKOFF_MS = 30 * 60 * 1000; // * attempts
 
-// Chrome profile snapshot prune list (Appendix C) — paths relative to userDataDir root.
+// Chrome profile snapshot prune list — paths relative to userDataDir root.
+// Removed locally before archiving (rebuildable / non-identity).
 export const SNAPSHOT_PRUNE_LIST = [
   "Default/Cache",
   "Default/Code Cache",
   "Default/GPUCache",
+  "Default/DawnGraphiteCache",
+  "Default/DawnWebGPUCache",
+  "Default/Service Worker",
+  "Default/Extensions",
+  "Default/History",
+  "Default/Sessions",
+  "Default/Visited Links",
   "GrShaderCache",
   "ShaderCache",
   "Crashpad",
   "BrowserMetrics",
+  "Safe Browsing",
+  "optimization_guide_model_store",
+  "component_crx_cache",
+  "extensions_crx_cache",
 ] as const;
 
-// Must survive pruning: Local State (root, cookie encryption key),
-// Default/Network/Cookies, Default/Local Storage, Default/IndexedDB, Default/Preferences.
+// Identity paths archived exclusively (whitelist) — see architecture.md §5.4.
 export const SNAPSHOT_MUST_KEEP = [
   "Local State",
   "Default/Network/Cookies",
   "Default/Local Storage",
+  "Default/Session Storage",
   "Default/IndexedDB",
   "Default/Preferences",
 ] as const;
+
+/** Convex blob Content-Type for profile archives (gzip-compressed tar). */
+export const SNAPSHOT_BLOB_CONTENT_TYPE = "application/gzip";
 
 export const SNAPSHOT_MARKER_FILE = ".blessgtm-snapshot";
 

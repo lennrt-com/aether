@@ -20,6 +20,7 @@ const { values: args } = parseArgs({
     "stay-provisioning": { type: "boolean", default: false },
     "persona-model": { type: "string" },
     "persona-prompt": { type: "string" },
+    location: { type: "string" },
   },
 });
 
@@ -41,6 +42,7 @@ const { profileId, persona, launchConfig } = await provisionProfile(client, work
   role: args.role!,
   personaModel: args["persona-model"],
   personaPrompt: args["persona-prompt"],
+  location: args.location,
   proxy: {
     server: proxyServer,
     username: args["proxy-user"],

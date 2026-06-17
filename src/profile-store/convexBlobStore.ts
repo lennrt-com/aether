@@ -1,5 +1,6 @@
 import type { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api.js";
+import { SNAPSHOT_BLOB_CONTENT_TYPE } from "../shared/constants.js";
 import type { BlobStore } from "./blobStore.js";
 
 export function createConvexBlobStore(
@@ -13,7 +14,7 @@ export function createConvexBlobStore(
       });
       const res = await fetch(uploadUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/gzip" },
+        headers: { "Content-Type": SNAPSHOT_BLOB_CONTENT_TYPE },
         body: new Uint8Array(data),
       });
       if (!res.ok) throw new Error(`blob upload failed: HTTP ${res.status}`);

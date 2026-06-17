@@ -11,6 +11,7 @@ import { launchSession } from "./session.js";
 import { runPreflight } from "./preflight.js";
 import { runFingerprintCheck } from "./fingerprintCheck.js";
 import { runSignup } from "./signup.js";
+import { runExperiment } from "./experiment.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
@@ -180,6 +181,125 @@ export async function runSignupSession(opts: SignupSessionOptions): Promise<Sign
         exitCode = 1;
       }
     }
+  } finally {
+    await session.close();
+  }
+
+  const snapshot = await snapshotProfile({
+    profileDir: userDataDir,
+    blobStore,
+    convex,
+    workerKey,
+    profileId: bundle.profile._id,
+    sessionId: bundle.sessionId,
+    chromeVersion: bundle.profile.chromeVersion,
+  });
+  await emit("SnapshotCommitted", {
+    snapshotId: snapshot.snapshotId,
+    contentHash: snapshot.contentHash,
+    sizeBytes: snapshot.sizeBytes,
+  });
+
+  return { exitCode, egressIp: session.egressIp };
+}
+
+export interface ExperimentSessionOptions {
+  convex: ConvexHttpClient;
+  workerKey: string;
+  emit: Emit;
+  bundle: SessionBundle;
+  prompt: string;
+  maxSteps?: number;
+  startUrl?: string;
+  model?: string;
+  onLog?: (line: string) => void;
+}
+
+// Same launch design as runSignupSession (hydrate → launch → ... → snapshot),
+// but instead of the LinkedIn signup flow it turns a generic agent loose on the
+// page to act on a free-form prompt. No preflight/fingerprint gate — this is a
+// general-purpose "do X through this profile" runner.
+export async function runExperimentSession(
+  opts: ExperimentSessionOptions,
+): Promise<SignupSessionResult> {
+  const { convex, workerKey, emit, bundle } = opts;
+  const agentModel = resolveAgentModel(opts.model);
+
+  const profilesDir = process.env.PROFILES_DIR ?? "./.profiles";
+  const userDataDir = path.resolve(profilesDir, bundle.profile._id);
+  fs.mkdirSync(userDataDir, { recursive: true });
+
+  const blobStore = createConvexBlobStore(convex, workerKey);
+  const hydrateOutcome = await hydrateProfile({
+    profileDir: userDataDir,
+    blobStore,
+    latest: bundle.currentSnapshot
+      ? {
+          storageId: bundle.currentSnapshot.storageId,
+          contentHash: bundle.currentSnapshot.contentHash,
+        }
+      : null,
+  });
+  await emit("FingerprintLoaded", {
+    hydrate: hydrateOutcome,
+    launchConfigHash: bundle.launchConfig?.hash ?? null,
+    snapshotHash: bundle.currentSnapshot?.contentHash ?? null,
+  });
+
+  const session = await launchSession({
+    userDataDir,
+    headless: process.env.HEADLESS === "true",
+    model: agentModel,
+    locale: bundle.launchConfig?.locale,
+    viewport: bundle.launchConfig
+      ? { width: bundle.launchConfig.windowWidth, height: bundle.launchConfig.windowHeight }
+      : undefined,
+    proxy: bundle.proxyBinding
+      ? {
+          server: bundle.proxyBinding.server,
+          username: bundle.proxyBinding.username,
+          password: bundle.proxyBinding.password,
+        }
+      : undefined,
+    fingerprint:
+      process.env.FINGERPRINT_SPOOF !== "false" && bundle.launchConfig?.fingerprintSeed
+        ? {
+            seed: bundle.launchConfig.fingerprintSeed,
+            hardwareConcurrency: bundle.launchConfig.hardwareConcurrency ?? undefined,
+            deviceMemory: bundle.launchConfig.deviceMemory ?? undefined,
+            languages: localeToLanguages(bundle.launchConfig.locale),
+          }
+        : undefined,
+    args: ["--password-store=basic"],
+    onLog: opts.onLog,
+  });
+
+  await convex.mutation(api.tasks.setSessionEgress, {
+    workerKey,
+    sessionId: bundle.sessionId,
+    egressIp: session.egressIp,
+    launchConfigHash: bundle.launchConfig?.hash,
+  });
+
+  let exitCode = 0;
+  try {
+    await runExperiment({
+      stagehand: session.stagehand,
+      emit,
+      prompt: opts.prompt,
+      maxSteps: opts.maxSteps,
+      startUrl: opts.startUrl,
+      proxy: bundle.proxyBinding
+        ? {
+            server: bundle.proxyBinding.server,
+            username: bundle.proxyBinding.username,
+            password: bundle.proxyBinding.password,
+          }
+        : undefined,
+    });
+  } catch (err) {
+    await emit("ActionFailed", { taskType: "experiment", error: String(err) }, randomUUID());
+    exitCode = 1;
   } finally {
     await session.close();
   }

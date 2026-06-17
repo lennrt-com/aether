@@ -22,6 +22,7 @@ function makePersona(name: string, activeHours: Array<{ start: number; end: numb
     role: "verification dummy",
     industry: "Testing",
     geo: "DE",
+    location: "Berlin, Berlin, Germany",
     backstory: "Synthetic persona used only to verify the scheduler.",
     tone: "neutral",
     interests: ["a", "b", "c"],

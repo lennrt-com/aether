@@ -17,11 +17,9 @@ import { runPreflight } from "./preflight.js";
 import { runFingerprintCheck } from "./fingerprintCheck.js";
 import {
   buildBehavior,
-  needsFeedSettle,
   type PersonaLike,
   withDirectActInstruction,
 } from "./behaviors.js";
-import { settlePage } from "./settle.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
@@ -170,7 +168,7 @@ try {
   } else {
     const personaLike = (bundle.persona?.data ?? null) as PersonaLike | null;
     const behavior = payload.instruction ? null : buildBehavior(task.type, personaLike);
-    const url = payload.url ?? behavior?.url ?? process.env.START_URL ?? "https://example.com";
+    const url = payload.url ?? behavior?.url ?? process.env.START_URL;
     const instruction = payload.instruction ?? behavior?.instruction;
     const maxSteps =
       payload.maxSteps ?? behavior?.maxSteps ?? Number(process.env.MAX_STEPS ?? 15);
@@ -178,27 +176,53 @@ try {
     const actionId = randomUUID();
     await emit(
       "ActionStarted",
-      { url, instruction: instruction ?? null, egressIp: session.egressIp },
+      { url: url ?? null, instruction: instruction ?? null, egressIp: session.egressIp },
       actionId,
     );
     try {
       const page = session.stagehand.context.activePage();
       if (!page) throw new Error("no active page after launch");
-      await page.goto(url, { waitUntil: "load" });
 
-      if (needsFeedSettle(task.type, url)) {
-        const settleId = `${actionId}:settle`;
-        await emit("ActionStarted", { phase: "feed_settle", url }, settleId);
-        try {
-          await settlePage(page, { scroll: true });
-          await emit("ActionSucceeded", { phase: "feed_settle", url }, settleId);
-        } catch (err) {
+      let agentResult: Awaited<ReturnType<ReturnType<typeof session.stagehand.agent>["execute"]>> | null = null;
+
+      if (instruction) {
+        // Let the AGENT navigate to the URL itself instead of a manual
+        // page.goto. A pre-navigation suppresses Stagehand's visible cursor
+        // (its overlay is injected on the next navigation after the agent
+        // starts), so we hand the destination to the agent — mirroring
+        // `bless experiment` without --start-url, where the cursor shows.
+        // The scroll preamble settles lazy feed content the way the old
+        // settlePage step did.
+        const navPrefix = url ? `First, navigate the browser directly to ${url}.\n\n` : "";
+        const agentInstruction = navPrefix + withDirectActInstruction(instruction);
+        const agent = session.stagehand.agent({ mode: "hybrid" });
+        agentResult = await agent.execute({
+          instruction: agentInstruction,
+          maxSteps,
+        });
+        for (let i = 0; i < agentResult.actions.length; i++) {
+          const action = agentResult.actions[i];
           await emit(
-            "ActionFailed",
-            { phase: "feed_settle", error: String(err) },
-            settleId,
+            "ActionSucceeded",
+            {
+              step: i + 1,
+              actionType: action.type,
+              reasoning: typeof action.reasoning === "string" ? action.reasoning.slice(0, 500) : undefined,
+              pageUrl: action.pageUrl,
+              timeMs: action.timeMs,
+            },
+            `${actionId}:step:${i + 1}`,
           );
         }
+      } else {
+        // No agent step: navigate directly (no Stagehand cursor involved).
+        await page.goto(url ?? "https://example.com", { waitUntil: "load" });
+      }
+
+      let evalResult: unknown;
+      if (payload.evaluate) {
+        evalResult = await evalInPage(page, payload.evaluate);
+        await emit("ActionSucceeded", { evaluate: payload.evaluate, evalResult }, `${actionId}:eval`);
       }
 
       const pageState = await classifyPage(session.stagehand, emit, actionId);
@@ -217,48 +241,19 @@ try {
           actionId,
         );
         exitCode = 1;
-      } else {
-        let evalResult: unknown;
-        if (payload.evaluate) {
-          evalResult = await evalInPage(page, payload.evaluate);
-          await emit("ActionSucceeded", { evaluate: payload.evaluate, evalResult }, `${actionId}:eval`);
-        }
-
-        if (!instruction) {
-          await emit("ActionSucceeded", { message: "browse completed (no instruction)", evalResult }, actionId);
+      } else if (agentResult) {
+        if (agentResult.success) {
+          await emit(
+            "ActionSucceeded",
+            { message: agentResult.message, completed: agentResult.completed, steps: agentResult.actions.length },
+            actionId,
+          );
         } else {
-          const agentInstruction = withDirectActInstruction(instruction);
-          const agent = session.stagehand.agent({ mode: "hybrid" });
-          const result = await agent.execute({
-            instruction: agentInstruction,
-            maxSteps,
-          });
-          for (let i = 0; i < result.actions.length; i++) {
-            const action = result.actions[i];
-            await emit(
-              "ActionSucceeded",
-              {
-                step: i + 1,
-                actionType: action.type,
-                reasoning: typeof action.reasoning === "string" ? action.reasoning.slice(0, 500) : undefined,
-                pageUrl: action.pageUrl,
-                timeMs: action.timeMs,
-              },
-              `${actionId}:step:${i + 1}`,
-            );
-          }
-          await classifyPage(session.stagehand, emit, actionId);
-          if (result.success) {
-            await emit(
-              "ActionSucceeded",
-              { message: result.message, completed: result.completed, steps: result.actions.length },
-              actionId,
-            );
-          } else {
-            await emit("ActionFailed", { message: result.message }, actionId);
-            exitCode = 1;
-          }
+          await emit("ActionFailed", { message: agentResult.message }, actionId);
+          exitCode = 1;
         }
+      } else {
+        await emit("ActionSucceeded", { message: "browse completed (no instruction)", evalResult }, actionId);
       }
     } catch (err) {
       await emit("ActionFailed", { error: String(err) }, randomUUID());

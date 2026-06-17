@@ -7,6 +7,7 @@ export class UnipileApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly body?: { type?: string; title?: string; status?: number },
   ) {
     super(message);
     this.name = "UnipileApiError";
@@ -46,6 +47,7 @@ export interface UnipileUser {
 export interface UnipileClient {
   listAccounts(): Promise<{ items: UnipileAccount[] }>;
   getProfile(accountId: string, userId: string): Promise<UnipileUser>;
+  getUserProfile(accountId: string, userId: string): Promise<UnipileUser>;
   listRelations(accountId: string, userId?: string): Promise<{ items: unknown[] }>;
   sendMessage(accountId: string, userId: string, text: string): Promise<ChatStarted>;
   sendInvitation(
@@ -73,7 +75,13 @@ export function createUnipileClient(
     });
     if (!res.ok) {
       const text = (await res.text()).slice(0, 500);
-      throw new UnipileApiError(res.status, `${method} ${path} -> HTTP ${res.status}: ${text}`);
+      let body: { type?: string; title?: string; status?: number } | undefined;
+      try {
+        body = JSON.parse(text) as { type?: string; title?: string; status?: number };
+      } catch {
+        body = undefined;
+      }
+      throw new UnipileApiError(res.status, `${method} ${path} -> HTTP ${res.status}: ${text}`, body);
     }
     return (await res.json()) as T;
   }
@@ -81,6 +89,8 @@ export function createUnipileClient(
   return {
     listAccounts: () => request("GET", "/v2/accounts/"),
     getProfile: (accountId, userId) =>
+      request("GET", `/v2/${accountId}/users/${encodeURIComponent(userId)}`),
+    getUserProfile: (accountId, userId) =>
       request("GET", `/v2/${accountId}/users/${encodeURIComponent(userId)}`),
     listRelations: (accountId, userId = "me") =>
       request("GET", `/v2/${accountId}/users/${encodeURIComponent(userId)}/relations`),

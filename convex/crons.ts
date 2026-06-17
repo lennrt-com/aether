@@ -24,4 +24,25 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "restriction monitoring",
+  { hours: 1 },
+  internal.monitoring.runRestrictionChecks,
+  {},
+);
+
+crons.interval(
+  "warmup age bump",
+  { hours: 1 },
+  internal.age.bumpWarmupAge,
+  {},
+);
+
+crons.interval(
+  "linkedin age update",
+  { hours: 1 },
+  internal.age.updateLinkedInAge,
+  {},
+);
+
 export default crons;

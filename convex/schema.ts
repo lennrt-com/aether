@@ -15,7 +15,9 @@ export default defineSchema({
     name: v.string(),
     status: profileStatus,
     riskScore: v.number(),
-    accountAgeDays: v.number(),            // for warmup curve; bump via daily cron
+    warmupAgeDays: v.optional(v.number()),       // fleet warmup ramp; +1/24 per hourly cron while live
+    linkedinAgeDays: v.optional(v.number()),     // days since LinkedIn account created; synced hourly
+    linkedinCreatedAt: v.optional(v.number()), // set on first transition to warming (signup live)
     personaId: v.optional(v.id("personas")),
     launchConfigId: v.optional(v.id("launchConfigs")),
     proxyBindingId: v.optional(v.id("proxyBindings")),
@@ -27,7 +29,13 @@ export default defineSchema({
     cohortTag: v.string(),                       // "default" for v1
     chromeVersion: v.string(),
     maintained: v.optional(v.boolean()),           // false = not picked up by worker after reset
-  }).index("by_status", ["status"]),
+    isRestricted: v.optional(v.boolean()),         // set once on first restriction (benchmark flag)
+    restrictedAt: v.optional(v.number()),          // timestamp of first restriction
+    restrictedAtPhase: v.optional(profileStatus),  // lifecycle phase when restricted (benchmark)
+    restrictionSource: v.optional(v.string()),     // e.g. unipile_probe, browser
+  })
+    .index("by_status", ["status"])
+    .index("by_isRestricted", ["isRestricted"]),
 
   proxyPool: defineTable({
     label: v.string(),

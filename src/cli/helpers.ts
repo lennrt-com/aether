@@ -51,19 +51,45 @@ export function spawnTsxScript(
   args: string[] = [],
   extraEnv?: Record<string, string>,
 ): Promise<number> {
+  return spawnTsxScriptTagged(undefined, scriptRel, args, extraEnv).then((r) => r.code);
+}
+
+/** Like spawnTsxScript but prefixes stdout/stderr lines with [tag] for parallel runs. */
+export function spawnTsxScriptTagged(
+  tag: string | undefined,
+  scriptRel: string,
+  args: string[] = [],
+  extraEnv?: Record<string, string>,
+): Promise<{ tag: string; code: number }> {
+  const label = tag ?? scriptRel;
   const root = projectRoot();
   const tsx = path.join(root, "node_modules/tsx/dist/cli.mjs");
   const script = path.join(root, scriptRel);
   return new Promise((resolve) => {
     const child = spawn("node", [tsx, script, ...args], {
-      stdio: "inherit",
+      stdio: tag ? ["ignore", "pipe", "pipe"] : "inherit",
       env: { ...process.env, ...extraEnv },
       cwd: root,
     });
-    child.on("exit", (code) => resolve(code ?? 1));
+
+    if (tag) {
+      const emit = (stream: NodeJS.ReadableStream | null, useStderr: boolean) => {
+        stream?.on("data", (buf: Buffer) => {
+          for (const line of buf.toString().split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            if (useStderr) console.error(`[${label}] ${line}`);
+            else console.log(`[${label}] ${line}`);
+          }
+        });
+      };
+      emit(child.stdout, false);
+      emit(child.stderr, true);
+    }
+
+    child.on("exit", (code) => resolve({ tag: label, code: code ?? 1 }));
     child.on("error", (err) => {
-      console.error(String(err));
-      resolve(1);
+      console.error(`[${label}] ${String(err)}`);
+      resolve({ tag: label, code: 1 });
     });
   });
 }

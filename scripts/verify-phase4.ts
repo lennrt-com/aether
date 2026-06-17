@@ -94,8 +94,10 @@ try {
   const snapshotCommitted = events.find((e) => e.type === "SnapshotCommitted");
   if (!snapshotCommitted) throw new Error("missing SnapshotCommitted event");
 
+  // Latest-only retention: commit deletes the prior snapshot, so after two
+  // sessions exactly one row (the newest) remains.
   const allSnaps = await client.query(api.snapshots.listFor, { profileId });
-  if (allSnaps.length !== 2) throw new Error(`expected 2 snapshot rows, got ${allSnaps.length}`);
+  if (allSnaps.length !== 1) throw new Error(`expected 1 snapshot row (latest-only), got ${allSnaps.length}`);
 
   console.log("phase 4 OK — cookie + localStorage survived a wiped local profile");
 } finally {

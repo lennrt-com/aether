@@ -1,4 +1,4 @@
-// Geo → locale and timezone defaults for persona/launch config provisioning.
+// Geo → locale, timezone, and country defaults for persona/launch config provisioning.
 
 export const GEO_LOCALES: Record<string, string> = {
   US: "en-US",
@@ -46,10 +46,37 @@ export const GEO_TIMEZONES: Record<string, string> = {
   BR: "America/Sao_Paulo",
 };
 
+export const GEO_COUNTRIES: Record<string, string> = {
+  US: "United States",
+  GB: "United Kingdom",
+  UK: "United Kingdom",
+  IE: "Ireland",
+  CA: "Canada",
+  AU: "Australia",
+  DE: "Germany",
+  AT: "Austria",
+  CH: "Switzerland",
+  FR: "France",
+  ES: "Spain",
+  IT: "Italy",
+  NL: "Netherlands",
+  BE: "Belgium",
+  SE: "Sweden",
+  DK: "Denmark",
+  NO: "Norway",
+  PL: "Poland",
+  PT: "Portugal",
+  BR: "Brazil",
+};
+
 export function localeForGeo(geo: string): string {
   return GEO_LOCALES[geo.toUpperCase()] ?? "en-US";
 }
 
 export function timezoneForGeo(geo: string, fallback = "UTC"): string {
   return GEO_TIMEZONES[geo.toUpperCase()] ?? fallback;
+}
+
+export function countryForGeo(geo: string, fallback = "United States"): string {
+  return GEO_COUNTRIES[geo.toUpperCase()] ?? fallback;
 }

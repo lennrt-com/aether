@@ -2,9 +2,10 @@ import { internalMutation, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { assertWorkerKey } from "./lib/guards";
+import { assertWorkerKey, isProfileRestricted } from "./lib/guards";
 import { appendEvent } from "./events";
 import { getActiveStrategy } from "./policies";
+import { resolveWarmupAgeDays, type ProfileWithLegacyAge } from "./lib/profileAge";
 
 interface StrategyParams {
   budgetMultiplier: number;
@@ -58,10 +59,10 @@ function hourInTz(now: number, timeZone: string): number {
   return Math.floor(((now + tzOffsetMs(now, timeZone)) % 86400000) / 3600000);
 }
 
-function warmupFactor(params: StrategyParams, accountAgeDays: number): number {
+function warmupFactor(params: StrategyParams, warmupAgeDays: number): number {
   const sorted = [...params.warmupCurve].sort((a, b) => a.maxAgeDays - b.maxAgeDays);
   for (const step of sorted) {
-    if (accountAgeDays <= step.maxAgeDays) return step.factor;
+    if (warmupAgeDays <= step.maxAgeDays) return step.factor;
   }
   return 1.0;
 }
@@ -76,6 +77,7 @@ async function scheduleProfile(
   strategy: Doc<"strategyVersions">,
   now: number,
 ): Promise<ScheduleOutcome> {
+  if (isProfileRestricted(profile)) return { skipped: "profile restricted" };
   const params = strategy.params as StrategyParams;
   const persona = profile.personaId ? await ctx.db.get(profile.personaId) : null;
   if (!persona) return { skipped: "no persona attached" };
@@ -110,7 +112,7 @@ async function scheduleProfile(
   const countByType = new Map<string, number>();
   for (const t of todaysTasks) countByType.set(t.type, (countByType.get(t.type) ?? 0) + 1);
 
-  const factor = warmupFactor(params, profile.accountAgeDays);
+  const factor = warmupFactor(params, resolveWarmupAgeDays(profile as ProfileWithLegacyAge));
   // ceil so warming caps (e.g. 3 * 0.2) still allow at least one task
   const capFor = (type: string) =>
     Math.ceil((params.dailyBudgets[type] ?? 0) * params.budgetMultiplier * factor);

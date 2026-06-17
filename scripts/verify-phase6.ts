@@ -84,7 +84,14 @@ console.log(`B: decayed score ${scoreB.toFixed(2)} → recovered warning → act
 await appendSignal(profileA, "RestrictionDetected", { pageState: "restriction_notice" });
 a = await client.query(api.profiles.get, { profileId: profileA });
 if (a?.status !== "restricted") throw new Error(`expected restricted, got ${a?.status}`);
-console.log("A: RestrictionDetected → status restricted");
+if (!a?.isRestricted) throw new Error("expected isRestricted true");
+if (a?.restrictedAtPhase !== "warning") {
+  throw new Error(`expected restrictedAtPhase warning, got ${a?.restrictedAtPhase}`);
+}
+if (a?.restrictionSource !== "browser") {
+  throw new Error(`expected restrictionSource browser, got ${a?.restrictionSource}`);
+}
+console.log("A: RestrictionDetected → status restricted, benchmark columns set");
 
 // cleanup the pending task so later phases see a clean queue
 const pending = await client.query(api.tasks.listByStatus, { status: "pending" });

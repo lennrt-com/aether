@@ -127,6 +127,76 @@ async function trimProfileHistory(
   for (const row of fpObs) await ctx.db.delete(row._id);
 }
 
+/** Delete one or more profiles and all attached rows + snapshot blobs. */
+export const removeProfiles = mutation({
+  args: {
+    workerKey: v.string(),
+    profileIds: v.array(v.id("profiles")),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { workerKey, profileIds, force }) => {
+    assertWorkerKey(workerKey);
+    const deletedProfileIds: Id<"profiles">[] = [];
+
+    for (const profileId of profileIds) {
+      const profile = await ctx.db.get(profileId);
+      if (!profile) throw new Error(`profile not found: ${profileId}`);
+
+      if (profile.activeSessionId !== undefined) {
+        if (!force) {
+          throw new Error(
+            `profile ${profileId} (${profile.name}) has an active session — pass force or release it first`,
+          );
+        }
+        const sid = profile.activeSessionId;
+        const session = await ctx.db.get(sid);
+        if (session && session.status === "running") {
+          await ctx.db.patch(sid, {
+            status: "failed",
+            endedAt: Date.now(),
+            outcome: "removed-while-active",
+          });
+        }
+        await ctx.db.patch(profile._id, { activeSessionId: undefined });
+      }
+
+      await deleteProfileFully(ctx, profileId);
+      deletedProfileIds.push(profileId);
+    }
+
+    return { deletedProfileIds, deletedCount: deletedProfileIds.length };
+  },
+});
+
+/** Remove profiles that never received accountCredentials and all attached rows. */
+export const removeProfilesWithoutCredentials = mutation({
+  args: { workerKey: v.string() },
+  handler: async (ctx, { workerKey }) => {
+    assertWorkerKey(workerKey);
+
+    const profiles = await ctx.db.query("profiles").collect();
+    const deletedProfileIds: Id<"profiles">[] = [];
+
+    for (const profile of profiles) {
+      const creds = await ctx.db
+        .query("accountCredentials")
+        .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+        .first();
+
+      if (!creds) {
+        await deleteProfileFully(ctx, profile._id);
+        deletedProfileIds.push(profile._id);
+      }
+    }
+
+    return {
+      deletedProfileIds,
+      deletedCount: deletedProfileIds.length,
+      preservedCount: profiles.length - deletedProfileIds.length,
+    };
+  },
+});
+
 /** Wipe moving DB state for dev resets. Preserves proxy pool, strategies, and accounts with credentials. */
 export const reset = mutation({
   args: { workerKey: v.string() },

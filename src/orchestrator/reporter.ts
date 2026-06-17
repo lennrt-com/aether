@@ -41,7 +41,9 @@ function summarizeEvent(type: EventType, data: unknown): string | null {
     if (d.tool) {
       const tool = String(d.tool);
       if (tool.includes("email") || tool.includes("smtp")) return `tool → smtp.dev (${tool})`;
-      if (tool.includes("phone") || tool.includes("5sim")) return `tool → 5sim (${tool})`;
+      if (tool.includes("phone") || tool.includes("5sim") || tool.includes("cancel_phone")) {
+        return `tool → 5sim (${tool})`;
+      }
       if (tool.includes("captcha") || tool.includes("recaptcha")) return `tool → captcha (${tool})`;
       return `tool → ${tool}`;
     }
@@ -69,7 +71,9 @@ function summarizeEvent(type: EventType, data: unknown): string | null {
       if (tool.includes("email") || tool.includes("verification_code")) {
         return `tool → smtp.dev (${tool}): ${errStr}`;
       }
-      if (tool.includes("phone")) return `tool → 5sim (${tool}): ${errStr}`;
+      if (tool.includes("phone") || tool.includes("5sim") || tool.includes("cancel_phone")) {
+        return `tool → 5sim (${tool}): ${errStr}`;
+      }
       if (tool.includes("captcha") || tool.includes("recaptcha")) {
         return `tool → captcha (${tool}): ${errStr}`;
       }

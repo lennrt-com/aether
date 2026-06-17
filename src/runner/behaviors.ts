@@ -6,6 +6,7 @@ export interface PersonaLike {
   role?: string;
   industry?: string;
   geo?: string;
+  location?: string;
   backstory?: string;
   tone?: string;
   interests?: string[];
@@ -19,8 +20,8 @@ export interface Behavior {
 
 export const FEED_URL = "https://www.linkedin.com/feed/";
 export const LOGIN_URL = "https://www.linkedin.com/login";
-/** Resolves to the logged-in member's canonical /in/{slug} profile. */
-export const LINKEDIN_PROFILE_ENTRY = "https://www.linkedin.com/in/";
+/** Logged-in shortcut — LinkedIn redirects /in/me/ to the member's canonical /in/{slug}. */
+export const LINKEDIN_PROFILE_ENTRY = "https://www.linkedin.com/in/me/";
 
 const DIRECT_ACT_PREAMBLE = [
   "Step 1 (required): immediately perform a visible browser action on the page — scroll down at least one viewport, or click/focus an interactive element.",
@@ -69,7 +70,8 @@ function personaSignupContext(persona: PersonaLike | null): string {
   const lines: string[] = [];
   if (persona.role) lines.push(`Job title / role: ${persona.role}`);
   if (persona.industry) lines.push(`Industry: ${persona.industry}`);
-  if (persona.geo) lines.push(`Location (city/region/country): ${persona.geo}`);
+  if (persona.location) lines.push(`Location (city/region/country): ${persona.location}`);
+  else if (persona.geo) lines.push(`Location (country): ${persona.geo}`);
   if (persona.interests?.length) {
     lines.push(`Professional interests: ${persona.interests.slice(0, 6).join(", ")}`);
   }
@@ -122,6 +124,15 @@ export function buildBehavior(taskType: string, persona: PersonaLike | null): Be
   }
 }
 
+const PHONE_VERIFICATION_INSTRUCTIONS = [
+  "Phone verification: call get_phone_number when the phone number field is visible, enter the number (use digitsOnly if '+' is rejected), submit, then call read_phone_verification_code when the SMS code field appears.",
+  "If read_phone_verification_code fails with no SMS (timeout), you MUST NOT give up immediately — retry with a new number when allowed.",
+  "Cancellation rule: call cancel_phone_number ONLY at least 2 minutes after get_phone_number for that same number (the tool enforces this).",
+  "After cancel_phone_number succeeds, fix the LinkedIn UI before buying again: click Back, Edit phone number, Use a different number, Add another phone number, Change, or the localized equivalent until the phone input is empty again.",
+  "Then call get_phone_number for a fresh number. You may buy at most 5 numbers total per signup.",
+  "Repeat: get_phone_number → enter on LinkedIn → read_phone_verification_code → (if no code after wait) cancel_phone_number → LinkedIn UI back to empty phone field → get_phone_number again.",
+].join(" ");
+
 // Login is orchestrated separately (needs credentials as variables + email
 // tools for verification codes) — only the instruction text lives here.
 export function buildLoginInstruction(): string {
@@ -129,7 +140,7 @@ export function buildLoginInstruction(): string {
     "Sign in to LinkedIn with the email %email% and the password %password%.",
     "If the page already shows a logged-in LinkedIn feed, you are done immediately.",
     "If LinkedIn asks for a verification code sent by email, call read_verification_code ONLY when the email verification screen is visible, then enter the code it returns.",
-    "If LinkedIn asks for phone verification, call get_phone_number ONLY when the phone number field is visible, enter the number, then call read_phone_verification_code when the SMS code field appears.",
+    PHONE_VERIFICATION_INSTRUCTIONS,
     "For ANY Google reCAPTCHA (invisible, checkbox, or image grid), call solve_recaptcha once. If a LinkedIn security modal (Sicherheitsprüfung) is open, click Verify/Weiter INSIDE the modal after solve_recaptcha — do NOT call solve_recaptcha again without clicking verify first. Otherwise click Submit/Continue on the signup form once and wait 3–5 seconds. Max 3 solve_recaptcha calls total. Do not use prepare_captcha_view/pan_captcha_view for reCAPTCHA.",
     "ONLY for a FunCaptcha / Arkose puzzle, call prepare_captcha_view, then solve it visually with clicks and drags.",
     "If Arkose puzzle pieces are clipped in a small box, call pan_captcha_view (left/right/up/down) until the full challenge is visible.",
@@ -154,8 +165,8 @@ export function buildSignupInstruction(persona: PersonaLike | null): string {
     "For an Arkose puzzle in a small scrollable box, call pan_captcha_view (try left and right) until the full puzzle is visible. If it refreshes, call prepare_captcha_view again and retry calmly.",
     "Step 4: once past the captcha, submit or continue.",
     "When the browser shows the email verification screen (6-digit code sent to your email), call read_verification_code and type the code it returns. Do NOT call read_verification_code before that screen appears.",
-    "If the browser shows phone verification instead, call get_phone_number, enter the number (use digitsOnly if '+' is rejected), then call read_phone_verification_code when the SMS code field appears.",
-    "Step 5: complete every mandatory onboarding screen after verification using the persona details above — location must match geo, job title must match role, industry must match industry, and experience level must be plausible for the role and backstory.",
+    PHONE_VERIFICATION_INSTRUCTIONS,
+    "Step 5: complete every mandatory onboarding screen after verification using the persona details above — when LinkedIn asks for location, enter or select exactly the Location value above (city and region, not just the country code); job title must match role, industry must match industry, and experience level must be plausible for the role and backstory.",
     "Step 6: skip every optional step — profile photo upload, contact import, people to follow, premium upsell, app download prompts, newsletter opt-ins. Use Skip, Not now, or Continue as appropriate.",
     "Step 7: keep going through onboarding until you land on the main LinkedIn home feed with the post stream visible and no wizard blocking the page.",
     "You are done only when onboarding is fully finished and the normal feed UI is showing.",

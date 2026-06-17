@@ -14,21 +14,24 @@ import { buildCaptchaTools } from "./captchaTools.js";
 import { buildEmailTools } from "./emailTools.js";
 import { buildPhoneTools } from "./phoneTools.js";
 import {
+  buildBehavior,
   buildLoginInstruction,
   buildSignupInstruction,
-  FEED_URL,
   LINKEDIN_PROFILE_ENTRY,
   LOGIN_URL,
+  withDirectActInstruction,
   type PersonaLike,
 } from "./behaviors.js";
 
 const DEFAULT_SIGNUP_URL = "https://www.linkedin.com/signup";
 const SIGNUP_MAX_STEPS = 1250;
 const LOGIN_MAX_STEPS = 500;
-const DEFAULT_FEED_WARMUP_MS = 30_000;
-const PROFILE_URL_WAIT_MS = 20_000;
+const DEFAULT_SIGNUP_FEED_WARMUP_MAX_STEPS = 1000;
+const PROFILE_URL_WAIT_MS = 30_000;
+const PROFILE_URL_GOTO_MS = 25_000;
 
 const LINKEDIN_PROFILE_PATH = /^\/in\/([a-zA-Z0-9\-_%]+)\/?$/;
+const LINKEDIN_PROFILE_SLUG_BLOCKLIST = new Set(["me", "company", "pub", "learning", "sales"]);
 
 /** Canonical https://www.linkedin.com/in/{slug} */
 export function normalizeLinkedInProfileUrl(raw: string): string | null {
@@ -37,10 +40,86 @@ export function normalizeLinkedInProfileUrl(raw: string): string | null {
     if (!u.hostname.endsWith("linkedin.com")) return null;
     const match = u.pathname.match(LINKEDIN_PROFILE_PATH);
     if (!match) return null;
-    return `https://www.linkedin.com/in/${match[1]}/`;
+    const slug = match[1];
+    if (LINKEDIN_PROFILE_SLUG_BLOCKLIST.has(slug.toLowerCase())) return null;
+    return `https://www.linkedin.com/in/${slug}/`;
   } catch {
     return null;
   }
+}
+
+/** Scan the current page URL and nav DOM for the logged-in member's /in/{slug}. */
+async function extractLinkedInProfileUrlFromPage(
+  stagehand: Stagehand,
+): Promise<string | null> {
+  const page = stagehand.context.activePage();
+  if (!page) return null;
+
+  const fromUrl = normalizeLinkedInProfileUrl(page.url());
+  if (fromUrl) return fromUrl;
+
+  const href = await evalInPage<string | null>(page, () => {
+    const profilePath = /^\/in\/([a-zA-Z0-9\-_%]+)\/?$/;
+    const blocked = new Set(["me", "company", "pub", "learning", "sales"]);
+
+    const toProfileUrl = (rawHref: string): string | null => {
+      try {
+        const path = new URL(rawHref, location.origin).pathname;
+        const match = path.match(profilePath);
+        if (!match || blocked.has(match[1].toLowerCase())) return null;
+        return new URL(path, location.origin).href;
+      } catch {
+        return null;
+      }
+    };
+
+    const meSelectors = [
+      'a[data-control-name="identity_profile_photo"]',
+      "a.global-nav__primary-link--me",
+      ".global-nav__me a[href*='/in/']",
+      "button.global-nav__me a[href*='/in/']",
+      "img.global-nav__me-photo",
+    ];
+    for (const sel of meSelectors) {
+      const el = document.querySelector(sel);
+      const anchor =
+        el?.closest("a") ?? (el instanceof HTMLAnchorElement ? el : null);
+      if (anchor) {
+        const hit = toProfileUrl(anchor.getAttribute("href") ?? "");
+        if (hit) return hit;
+      }
+    }
+
+    const nav =
+      document.querySelector("nav.global-nav") ??
+      document.querySelector("header#global-nav") ??
+      document.querySelector('[data-global-nav="true"]');
+    if (nav) {
+      for (const anchor of nav.querySelectorAll("a[href*='/in/']")) {
+        const hit = toProfileUrl(anchor.getAttribute("href") ?? "");
+        if (hit) return hit;
+      }
+    }
+
+    return null;
+  });
+
+  return href ? normalizeLinkedInProfileUrl(href) : null;
+}
+
+async function pollLinkedInProfileUrl(
+  stagehand: Stagehand,
+  deadlineMs: number,
+): Promise<string | null> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    const fromUrl = normalizeLinkedInProfileUrl(stagehand.context.activePage()?.url() ?? "");
+    if (fromUrl) return fromUrl;
+    const fromDom = await extractLinkedInProfileUrlFromPage(stagehand);
+    if (fromDom) return fromDom;
+    await stagehand.context.activePage()?.waitForTimeout(500);
+  }
+  return null;
 }
 
 async function persistCredentials(
@@ -72,7 +151,7 @@ async function persistCredentials(
   }
 }
 
-/** Visit /in/ while logged in; LinkedIn redirects to the member's canonical profile URL. */
+/** Visit /in/me/ while logged in; LinkedIn redirects to the member's canonical profile URL. */
 async function captureLinkedInProfileUrl(
   stagehand: Stagehand,
   convex: ConvexHttpClient,
@@ -88,24 +167,48 @@ async function captureLinkedInProfileUrl(
   await emit("ActionStarted", { phase: "signup_profile_url", url: LINKEDIN_PROFILE_ENTRY }, phaseId);
 
   try {
-    await page.goto(LINKEDIN_PROFILE_ENTRY, {
-      waitUntil: "domcontentloaded",
-      timeoutMs: 45_000,
-    });
-
-    const deadline = Date.now() + PROFILE_URL_WAIT_MS;
-    let normalized: string | null = null;
-    while (Date.now() < deadline) {
-      normalized = normalizeLinkedInProfileUrl(page.url());
-      if (normalized) break;
-      await page.waitForTimeout(500);
+    // Agent often lands on the feed — profile link is already in the nav.
+    let normalized = await pollLinkedInProfileUrl(stagehand, 5_000);
+    if (normalized) {
+      await convex.mutation(api.profiles.setLinkedInProfileUrl, {
+        workerKey,
+        profileId,
+        linkedInProfileUrl: normalized,
+      });
+      await emit(
+        "ActionSucceeded",
+        { phase: "signup_profile_url", linkedInProfileUrl: normalized, method: "feed_dom" },
+        phaseId,
+      );
+      return normalized;
     }
 
-    if (!normalized) {
+    // LinkedIn is a heavy SPA — domcontentloaded often never fires; use commit and keep polling.
+    try {
+      await page.goto(LINKEDIN_PROFILE_ENTRY, {
+        waitUntil: "commit",
+        timeoutMs: PROFILE_URL_GOTO_MS,
+      });
+    } catch (err) {
       await emit(
-        "ActionFailed",
+        "AnomalyObserved",
         {
           phase: "signup_profile_url",
+          reason: "profile_goto_soft_timeout",
+          note: String(err),
+          lastUrl: page.url(),
+        },
+        `${phaseId}:goto`,
+      );
+    }
+
+    normalized = await pollLinkedInProfileUrl(stagehand, PROFILE_URL_WAIT_MS);
+    if (!normalized) {
+      await emit(
+        "AnomalyObserved",
+        {
+          phase: "signup_profile_url",
+          reason: "profile_url_not_found",
           error: "LinkedIn did not redirect to a profile URL",
           lastUrl: page.url(),
         },
@@ -122,14 +225,14 @@ async function captureLinkedInProfileUrl(
 
     await emit(
       "ActionSucceeded",
-      { phase: "signup_profile_url", linkedInProfileUrl: normalized },
+      { phase: "signup_profile_url", linkedInProfileUrl: normalized, method: "in_me_redirect" },
       phaseId,
     );
     return normalized;
   } catch (err) {
     await emit(
-      "ActionFailed",
-      { phase: "signup_profile_url", error: String(err) },
+      "AnomalyObserved",
+      { phase: "signup_profile_url", reason: "profile_url_capture_error", error: String(err), lastUrl: page.url() },
       phaseId,
     );
     return null;
@@ -200,42 +303,70 @@ async function emitAgentSteps(
   }
 }
 
-/** Slow, human-like feed scroll after signup before the session closes. */
-async function scrollFeedWarmup(
+/** Persona-driven feed browse after signup — same behavior as scheduled warmup_feed tasks. */
+async function runAgentFeedWarmup(
   stagehand: Stagehand,
   emit: Emit,
+  personaLike: PersonaLike | null,
   actionId: string,
-  durationMs: number,
+  maxSteps: number,
 ): Promise<boolean> {
-  const page = stagehand.context.activePage();
-  if (!page) return false;
+  const behavior = buildBehavior("warmup_feed", personaLike);
+  if (!behavior) return false;
 
-  await emit("ActionStarted", { phase: "signup_feed_warmup", durationMs }, `${actionId}:feed`);
+  const feedActionId = `${actionId}:feed`;
+  await emit(
+    "ActionStarted",
+    { phase: "signup_feed_warmup", url: behavior.url, maxSteps },
+    feedActionId,
+  );
 
   try {
-    await page.goto(FEED_URL, { waitUntil: "domcontentloaded", timeoutMs: 30_000 }).catch(() => {});
-    const deadline = Date.now() + durationMs;
-    while (Date.now() < deadline) {
-      await evalInPage(page, () => {
-        window.scrollBy({
-          top: 250 + Math.floor(Math.random() * 350),
-          behavior: "smooth",
-        });
-      });
-      await page.waitForTimeout(900 + Math.floor(Math.random() * 700));
+    const navPrefix = `First, navigate the browser directly to ${behavior.url}.\n\n`;
+    const agentInstruction = navPrefix + withDirectActInstruction(behavior.instruction);
+    const agent = stagehand.agent({ mode: "hybrid" });
+    const agentResult = await agent.execute({
+      instruction: agentInstruction,
+      maxSteps,
+    });
+
+    await emitAgentSteps(emit, agentResult.actions, feedActionId);
+
+    const pageState = await classifyPage(stagehand, emit, feedActionId);
+    if (pageState === "login") {
+      await emit(
+        "AnomalyObserved",
+        { phase: "signup_feed_warmup", reason: "login_wall" },
+        feedActionId,
+      );
+      return false;
     }
-    await classifyPage(stagehand, emit, `${actionId}:feed`);
+
+    if (!agentResult.success) {
+      await emit(
+        "ActionFailed",
+        { phase: "signup_feed_warmup", message: agentResult.message },
+        feedActionId,
+      );
+      return false;
+    }
+
     await emit(
       "ActionSucceeded",
-      { phase: "signup_feed_warmup", durationMs, url: FEED_URL },
-      `${actionId}:feed`,
+      {
+        phase: "signup_feed_warmup",
+        url: behavior.url,
+        steps: agentResult.actions.length,
+        maxSteps,
+      },
+      feedActionId,
     );
     return true;
   } catch (err) {
     await emit(
       "ActionFailed",
       { phase: "signup_feed_warmup", error: String(err) },
-      `${actionId}:feed`,
+      feedActionId,
     );
     return false;
   }
@@ -245,7 +376,9 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
   const { stagehand, convex, workerKey, emit, profile, persona, proxy } = deps;
   const actionId = randomUUID();
   const signupUrl = process.env.LINKEDIN_SIGNUP_URL ?? DEFAULT_SIGNUP_URL;
-  const feedWarmupMs = Number(process.env.SIGNUP_FEED_WARMUP_MS ?? DEFAULT_FEED_WARMUP_MS);
+  const feedWarmupMaxSteps = Number(
+    process.env.SIGNUP_FEED_WARMUP_MAX_STEPS ?? DEFAULT_SIGNUP_FEED_WARMUP_MAX_STEPS,
+  );
 
   const existing = await convex.query(api.credentials.getFor, {
     workerKey,
@@ -356,14 +489,15 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
   );
   if (!linkedInProfileUrl) {
     await emit(
-      "ActionFailed",
+      "AnomalyObserved",
       {
-        message: "signup wizard finished but LinkedIn profile URL could not be captured",
+        phase: "signup_profile_url",
+        reason: "profile_url_not_captured",
+        message: "signup finished and credentials saved, but LinkedIn profile URL could not be captured",
         email: state.address,
       },
       actionId,
     );
-    return false;
   }
 
   if (profile.status === "provisioning") {
@@ -371,18 +505,24 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
       workerKey,
       profileId: profile._id,
       to: "warming",
-      reason: "signup onboarding completed",
+      reason: linkedInProfileUrl ? "signup onboarding completed" : "signup completed (profile URL pending)",
     });
   }
 
-  const feedOk = await scrollFeedWarmup(stagehand, emit, actionId, feedWarmupMs);
+  const feedOk = await runAgentFeedWarmup(
+    stagehand,
+    emit,
+    personaLike,
+    actionId,
+    feedWarmupMaxSteps,
+  );
   if (!feedOk) {
     await emit(
       "AnomalyObserved",
       {
         phase: "signup_feed_warmup",
         reason: "feed_warmup_failed",
-        note: "credentials saved; feed scroll did not complete cleanly",
+        note: "credentials saved; agent feed warmup did not complete cleanly",
       },
       actionId,
     );
@@ -393,10 +533,11 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
     {
       message: result.message,
       steps: result.actions.length,
-      feedWarmupMs,
+      feedWarmupMaxSteps,
       feedWarmupOk: feedOk,
       email: state.address,
-      linkedInProfileUrl,
+      linkedInProfileUrl: linkedInProfileUrl ?? undefined,
+      profileUrlCaptured: Boolean(linkedInProfileUrl),
     },
     actionId,
   );

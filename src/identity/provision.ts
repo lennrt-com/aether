@@ -1,4 +1,4 @@
-// Provision a complete identity bundle: profile row, LLM persona, deterministic
+// Provision a complete identity bundle: profile row, Faker+AI persona, deterministic
 // launch config, proxy binding. Shared by `bless provision` and `bless create`.
 import type { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api.js";
@@ -18,6 +18,8 @@ export interface ProvisionOptions {
   role: string;
   personaModel?: string;
   personaPrompt?: string;
+  /** Override Faker city for LinkedIn location, e.g. "Frankfurt, Hesse, Germany". */
+  location?: string;
   /** Omit for a direct (no-proxy) profile — only sensible for manual/local testing. */
   proxy?: { server: string; username?: string; password?: string };
   /** Leave the profile in `provisioning` (required before a signup task). */
@@ -47,14 +49,15 @@ export async function provisionProfile(
   });
   info(`profile created: ${profileId}`);
 
-  if (phase) phase("generating persona (LLM)...");
-  else info("generating persona (LLM)...");
+  if (phase) phase("generating persona (Faker + AI)...");
+  else info("generating persona (Faker + AI)...");
   const persona = PersonaSchema.parse(
     await generatePersona({
       seed: profileId,
       geo: opts.geo,
       timezone: opts.timezone,
       roleArchetype: opts.role,
+      location: opts.location,
       model: opts.personaModel,
       userPrompt: opts.personaPrompt,
     }),
@@ -66,7 +69,7 @@ export async function provisionProfile(
     data: persona,
   });
   await client.mutation(api.personas.attachToProfile, { workerKey, profileId, personaId });
-  info(`persona generated: ${persona.fullName} (${persona.role})`);
+  info(`persona generated: ${persona.fullName} (${persona.role}) — ${persona.location}`);
 
   const launchConfig = generateLaunchConfig({
     profileKey: profileId,

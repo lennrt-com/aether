@@ -22,6 +22,9 @@ importers:
       '@browserbasehq/stagehand':
         specifier: ^3.0.0
         version: 3.5.0(patch_hash=26cbb29301b484cd5d34543df98df31d665ac2df795f6b8150ba3a163ddf699d)(zod@3.25.76)
+      '@faker-js/faker':
+        specifier: ^10.4.0
+        version: 10.4.0
       '@inquirer/prompts':
         specifier: ^8.5.2
         version: 8.5.2(@types/node@22.19.20)
@@ -40,6 +43,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      fzstd:
+        specifier: ^0.1.1
+        version: 0.1.1
       proxy-chain:
         specifier: ^3.0.0
         version: 3.0.0
@@ -543,6 +549,10 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@faker-js/faker@10.4.0':
+    resolution: {integrity: sha512-sDBWI3yLy8EcDzgobvJTWq1MJYzAkQdpjXuPukga9wXonhpMRvd1Izuo2Qgwey2OiEoRIBr35RMU9HJRoOHzpw==}
+    engines: {node: ^20.19.0 || ^22.13.0 || ^23.5.0 || >=24.0.0, npm: '>=10'}
 
   '@google/genai@1.52.0':
     resolution: {integrity: sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q==}
@@ -1119,6 +1129,9 @@ packages:
 
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
+
+  fzstd@0.1.1:
+    resolution: {integrity: sha512-dkuVSOKKwh3eas5VkJy1AW1vFpet8TA/fGmVA5krThl8YcOVE/8ZIoEA1+U1vEn5ckxxhLirSdY837azmbaNHA==}
 
   gaxios@7.1.5:
     resolution: {integrity: sha512-5FZy72Rh8LhtjmvDrKkI+lVhrsQrVKVsItxMoDm5mNQE+xR0WVIIs+jzPSJgBvKVsLi24fZhXJIsNI0bihDzFg==}
@@ -2054,6 +2067,8 @@ snapshots:
   '@esbuild/win32-x64@0.28.0':
     optional: true
 
+  '@faker-js/faker@10.4.0': {}
+
   '@google/genai@1.52.0(@modelcontextprotocol/sdk@1.29.0(zod@3.25.76))(bufferutil@4.1.0)':
     dependencies:
       google-auth-library: 10.7.0
@@ -2670,6 +2685,8 @@ snapshots:
     optional: true
 
   function-bind@1.1.2: {}
+
+  fzstd@0.1.1: {}
 
   gaxios@7.1.5:
     dependencies:

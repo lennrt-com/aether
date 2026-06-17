@@ -26,3 +26,10 @@ export function assertTransition(from: ProfileStatus, to: ProfileStatus): void {
     throw new Error(`illegal profile transition: ${from} -> ${to}`);
   }
 }
+
+export function isProfileRestricted(profile: {
+  isRestricted?: boolean;
+  status?: string;
+}): boolean {
+  return profile.isRestricted === true || profile.status === "restricted";
+}

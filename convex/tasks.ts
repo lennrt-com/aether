@@ -3,7 +3,7 @@ import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { taskStatus } from "./schema";
-import { assertWorkerKey } from "./lib/guards";
+import { assertWorkerKey, isProfileRestricted } from "./lib/guards";
 import { appendEvent } from "./events";
 import { getActiveStrategy } from "./policies";
 
@@ -127,6 +127,7 @@ export const claimNext = mutation({
       if (!profile) continue;
       if (profile.activeSessionId !== undefined) continue;
       if (profile.maintained === false) continue;
+      if (isProfileRestricted(profile)) continue;
       const claimable =
         CLAIMABLE_STATUSES.includes(profile.status) ||
         (profile.status === "provisioning" && PROVISIONING_TASK_TYPES.includes(task.type));

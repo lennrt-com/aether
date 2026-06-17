@@ -9,7 +9,7 @@ import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { AGENT_MODEL_CHOICES, resolveAgentModel } from "../shared/agentModels.js";
 import { timezoneForGeo } from "../shared/geo.js";
 import { convex, table, fmtTs, acctStamp, resolveProxyForCli, type ProxyPoolEntry } from "./helpers.js";
-import { runCreateInteractive, runReset, showMainMenu } from "./interactive.js";
+import { runCreateInteractive, runCreateParallelInteractive, runExperimentInteractive, runExperimentAll, runRemoveProfiles, runReset, showMainMenu } from "./interactive.js";
 
 const program = new Command();
 program
@@ -48,6 +48,7 @@ program
   .option("--role <role>", "persona role archetype", "experienced professional")
   .option("--persona-model <alias>", "persona LLM model")
   .option("--persona-prompt <text>", "optional persona creative prompt")
+  .option("--location <city>", "LinkedIn location override, e.g. Frankfurt, Hesse, Germany")
   .option("--stay-provisioning", "leave the profile in provisioning for a follow-up signup task")
   .action(async (opts) => {
     const args = [
@@ -61,6 +62,7 @@ program
     if (opts.proxyPass) args.push("--proxy-pass", opts.proxyPass);
     if (opts.personaModel) args.push("--persona-model", opts.personaModel);
     if (opts.personaPrompt) args.push("--persona-prompt", opts.personaPrompt);
+    if (opts.location) args.push("--location", opts.location);
     if (opts.stayProvisioning) args.push("--stay-provisioning");
     process.exitCode = await runScript("scripts/provision-profile.ts", args);
   });
@@ -82,6 +84,7 @@ program
   .option("--no-proxy", "launch without a proxy (direct connection)")
   .option("--persona-prompt <text>", "optional persona creative prompt")
   .option("--persona-model <alias>", "persona LLM model")
+  .option("--location <city>", "LinkedIn location override, e.g. Frankfurt, Hesse, Germany")
   .option("--max-steps <n>", "signup agent step budget")
   .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
   .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
@@ -98,9 +101,94 @@ program
       proxyPass: opts.proxyPass,
       personaPrompt: opts.personaPrompt,
       personaModel: opts.personaModel,
+      location: opts.location,
       maxSteps: opts.maxSteps,
       skipPreflight: opts.skipPreflight,
       model: opts.model,
+    });
+  });
+
+// ---------------------------------------------------------- create-parallel
+program
+  .command("create-parallel")
+  .description(
+    "interactive: provision N identities and run LinkedIn signups in parallel (no worker)",
+  )
+  .option("--count <n>", "how many accounts to create (default: prompt, max 10)")
+  .option("--geo <geo>", "persona/proxy geo (when not using per-proxy geo from pool)")
+  .option("--tz <timezone>", "IANA timezone")
+  .option("--role <role>", "persona role archetype", "experienced professional")
+  .option("--proxy-pool-id <id>", "proxy pool entry id")
+  .option("--proxy-server <hostPort>", "proxy server (bypasses pool)")
+  .option("--proxy-user <user>")
+  .option("--proxy-pass <pass>")
+  .option("--no-proxy", "launch without a proxy (direct connection)")
+  .option("--persona-prompt <text>", "optional persona creative prompt")
+  .option("--persona-model <alias>", "persona LLM model")
+  .option("--location <city>", "LinkedIn location override")
+  .option("--max-steps <n>", "signup agent step budget")
+  .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .action(async (opts) => {
+    process.exitCode = await runCreateParallelInteractive({
+      count: opts.count ? Number(opts.count) : undefined,
+      geo: opts.geo,
+      tz: opts.tz,
+      role: opts.role,
+      proxyPoolId: opts.proxyPoolId,
+      noProxy: opts.proxy === false,
+      proxyServer: opts.proxyServer,
+      proxyUser: opts.proxyUser,
+      proxyPass: opts.proxyPass,
+      personaPrompt: opts.personaPrompt,
+      personaModel: opts.personaModel,
+      location: opts.location,
+      maxSteps: opts.maxSteps,
+      skipPreflight: opts.skipPreflight,
+      model: opts.model,
+    });
+  });
+
+// --------------------------------------------------------------- experiment
+program
+  .command("experiment [prompt]")
+  .description(
+    "interactive: run a free-form agent prompt through a selected profile in foreground (no worker)",
+  )
+  .option("--profile <profileId>", "profile to act through (skips the picker)")
+  .option("--start-url <url>", "navigate here before the agent starts")
+  .option("--max-steps <n>", "agent step budget (prompts if omitted)")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC)
+  .action(async (promptArg, opts) => {
+    process.exitCode = await runExperimentInteractive({
+      prompt: promptArg,
+      profileId: opts.profile,
+      startUrl: opts.startUrl,
+      maxSteps: opts.maxSteps,
+      model: opts.model,
+    });
+  });
+
+// ----------------------------------------------------------- experiment-all
+program
+  .command("experiment-all")
+  .description(
+    "run every profile through a minimal foreground experiment to re-snapshot it under the current prune/whitelist rules",
+  )
+  .option("--prompt <text>", "agent prompt (default: trivial 'open page then finish')")
+  .option("--start-url <url>", "page to open before the agent acts", "https://example.com")
+  .option("--max-steps <n>", "agent step budget per profile", "1")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC)
+  .option("--status <status>", "only run profiles in this lifecycle status")
+  .option("--concurrency <n>", "profiles to run in parallel", "1")
+  .action(async (opts) => {
+    process.exitCode = await runExperimentAll({
+      prompt: opts.prompt,
+      startUrl: opts.startUrl,
+      maxSteps: opts.maxSteps,
+      model: opts.model,
+      status: opts.status,
+      concurrency: opts.concurrency,
     });
   });
 
@@ -197,6 +285,22 @@ proxyCmd
       proxyPoolId: proxyPoolId as Id<"proxyPool">,
     })) as { removed: boolean; label: string };
     console.log(`removed proxy "${res.label}"`);
+  });
+
+// ------------------------------------------------------------------- remove
+program
+  .command("remove [profileIds...]")
+  .description(
+    "delete profile(s) and all linked data (persona, credentials, snapshots, events, …) + local .profiles dir",
+  )
+  .option("--yes", "skip confirmation prompt")
+  .option("--no-force", "abort if a profile still has an active session")
+  .action(async (profileIds: string[], opts) => {
+    process.exitCode = await runRemoveProfiles({
+      profileIds: profileIds.length > 0 ? profileIds : undefined,
+      yes: opts.yes ?? false,
+      force: opts.noForce ? false : true,
+    });
   });
 
 // ------------------------------------------------------------------- reset
@@ -629,19 +733,26 @@ program
   .alias("ps")
   .description("list profiles with status and risk score")
   .option("--status <status>", "filter by profile status")
+  .option("--restricted", "filter to restricted profiles only")
   .action(async (opts) => {
     const { client } = convex();
     const profiles: Doc<"profiles">[] = await client.query(api.profiles.list, {
       status: opts.status,
+      restricted: opts.restricted ? true : undefined,
     });
     table(
       profiles.map((p) => ({
         id: p._id,
         name: p.name,
         status: p.status,
+        restricted: p.isRestricted ? "yes" : "no",
+        atPhase: p.restrictedAtPhase ?? "-",
+        restrictedAt: p.restrictedAt ? fmtTs(p.restrictedAt) : "-",
+        source: p.restrictionSource ?? "-",
         maint: p.maintained === false ? "no" : "yes",
         risk: p.riskScore.toFixed(1),
-        ageDays: p.accountAgeDays,
+        warmupDays: (p.warmupAgeDays ?? (p as { accountAgeDays?: number }).accountAgeDays ?? 0).toFixed(1),
+        linkedinDays: (p.linkedinAgeDays ?? 0).toFixed(1),
         linkedin: p.linkedInProfileUrl ?? "-",
         unipile: p.unipileAccountId ?? "-",
       })),
@@ -712,6 +823,12 @@ program
     for (const p of profiles) byStatus.set(p.status, (byStatus.get(p.status) ?? 0) + 1);
     console.log("\nprofiles:");
     table([...byStatus.entries()].map(([status, count]) => ({ status, count })));
+
+    const benchmark = await client.query(api.profiles.restrictionBenchmark, {});
+    console.log("\nrestrictions:");
+    table([
+      { total: benchmark.total, ...benchmark.byPhase },
+    ]);
     const busy = profiles.filter((p) => p.activeSessionId !== undefined);
     if (busy.length > 0) {
       console.log(`\nactive sessions: ${busy.map((p) => `${p.name} (${p._id})`).join(", ")}`);
@@ -751,6 +868,126 @@ strategy
       approvedBy: opts.by,
     });
     console.log(`approved strategy ${strategyVersionId} (by ${opts.by})`);
+  });
+
+// ------------------------------------------------------------------ age
+const age = program
+  .command("age")
+  .description("warmupAgeDays (fleet ramp) and linkedinAgeDays (platform age)");
+
+age
+  .command("warmup")
+  .description("run one warmup-age tick now (+1/24 day per eligible profile)")
+  .action(async () => {
+    const { client, workerKey } = convex();
+    const result = await client.mutation(api.age.runWarmup, { workerKey });
+    console.log(`warmup age bump: ${JSON.stringify(result)}`);
+  });
+
+age
+  .command("linkedin")
+  .description("recompute linkedinAgeDays from linkedinCreatedAt for all live profiles")
+  .action(async () => {
+    const { client, workerKey } = convex();
+    const result = await client.mutation(api.age.runLinkedIn, { workerKey });
+    console.log(`linkedin age update: ${JSON.stringify(result)}`);
+  });
+
+age
+  .command("backfill")
+  .description("migrate legacy accountAgeDays and infer linkedinCreatedAt from events")
+  .action(async () => {
+    const { client, workerKey } = convex();
+    const result = await client.mutation(api.age.backfill, { workerKey });
+    console.log(`age backfill: ${JSON.stringify(result)}`);
+  });
+
+// ------------------------------------------------------------------ monitor
+const monitor = program.command("monitor").description("profile health monitoring (independent of worker)");
+
+monitor
+  .command("restrictions [profileId]")
+  .description("run restriction checks now via Unipile probe account (Convex action, no worker)")
+  .action(async (profileIdArg?: string) => {
+    const { client, workerKey } = convex();
+    const profileId = profileIdArg as Id<"profiles"> | undefined;
+    const result = await client.mutation(api.monitoring.run, { workerKey, profileId });
+    if (profileId) {
+      console.log(`scheduled restriction check for ${profileId}: ${JSON.stringify(result)}`);
+    } else {
+      console.log(`scheduled restriction check: ${JSON.stringify(result)}`);
+    }
+    console.log("runs in Convex — check events with: bless events <profileId>");
+  });
+
+monitor
+  .command("probe [profileId]")
+  .description("dry-run Unipile probe (writes NO events) to inspect raw restriction signals")
+  .option("--all", "probe all monitored profiles (default: only the given profileId)")
+  .option("--include-restricted", "also probe already-restricted profiles")
+  .option("--raw", "print the full raw Unipile response body for each profile")
+  .action(async (profileIdArg: string | undefined, opts) => {
+    const { client, workerKey } = convex();
+    const profileId = profileIdArg as Id<"profiles"> | undefined;
+    if (!profileId && !opts.all) {
+      throw new Error("provide a profileId, or pass --all to probe the whole fleet");
+    }
+    const { count, results } = await client.action(api.monitoring.probeDiagnostics, {
+      workerKey,
+      profileId,
+      includeRestricted: opts.includeRestricted ?? Boolean(opts.all && opts.includeRestricted),
+    });
+    console.log(`probed ${count} profile(s) — no events written\n`);
+    table(
+      results.map((r) => ({
+        name: r.name,
+        status: r.status,
+        db_restricted: r.isRestricted ? "yes" : "",
+        live: r.outcome,
+        http: r.httpStatus ?? "",
+        errorType: r.errorType ?? "",
+        flag: r.wouldFlagRestricted ? "RESTRICT" : "",
+        mismatch: r.mismatch ? "!!" : "",
+        detail: r.detail,
+      })),
+    );
+    const mismatches = results.filter((r) => r.mismatch);
+    if (mismatches.length > 0) {
+      console.log(
+        `\n${mismatches.length} mismatch(es) — DB restriction state disagrees with the live probe:`,
+      );
+      for (const m of mismatches) {
+        console.log(`  ${m.name} (${m.profileId}) — db_restricted=${m.isRestricted} live=${m.outcome} http=${m.httpStatus} type=${m.errorType ?? "-"}`);
+      }
+    }
+    if (opts.raw) {
+      console.log("\n--- raw responses ---");
+      for (const r of results) {
+        console.log(`\n# ${r.name} (${r.profileId})`);
+        console.log(JSON.stringify(r.raw, null, 2));
+      }
+    }
+  });
+
+monitor
+  .command("benchmark")
+  .description("restriction counts grouped by phase at detection time")
+  .action(async () => {
+    const { client } = convex();
+    const benchmark = await client.query(api.profiles.restrictionBenchmark, {});
+    console.log(`total restricted: ${benchmark.total}`);
+    table(
+      Object.entries(benchmark.byPhase).map(([phase, count]) => ({ phase, count })),
+    );
+  });
+
+monitor
+  .command("backfill-restrictions")
+  .description("backfill isRestricted columns for legacy restricted profiles")
+  .action(async () => {
+    const { client, workerKey } = convex();
+    const result = await client.mutation(api.profiles.backfillRestrictions, { workerKey });
+    console.log(`backfilled ${result.patched} profile(s)`);
   });
 
 // ------------------------------------------------------------------ unipile

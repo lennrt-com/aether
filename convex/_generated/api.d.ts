@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as age from "../age.js";
 import type * as credentials from "../credentials.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
@@ -16,7 +17,10 @@ import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as launchConfigs from "../launchConfigs.js";
 import type * as lib_guards from "../lib/guards.js";
+import type * as lib_profileAge from "../lib/profileAge.js";
+import type * as lib_unipile from "../lib/unipile.js";
 import type * as maintenance from "../maintenance.js";
+import type * as monitoring from "../monitoring.js";
 import type * as personas from "../personas.js";
 import type * as ping from "../ping.js";
 import type * as policies from "../policies.js";
@@ -36,6 +40,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  age: typeof age;
   credentials: typeof credentials;
   crons: typeof crons;
   events: typeof events;
@@ -44,7 +49,10 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   launchConfigs: typeof launchConfigs;
   "lib/guards": typeof lib_guards;
+  "lib/profileAge": typeof lib_profileAge;
+  "lib/unipile": typeof lib_unipile;
   maintenance: typeof maintenance;
+  monitoring: typeof monitoring;
   personas: typeof personas;
   ping: typeof ping;
   policies: typeof policies;

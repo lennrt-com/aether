@@ -35,6 +35,8 @@ export interface SignupSessionOptions {
   bundle: SessionBundle;
   maxSteps?: number;
   skipPreflight?: boolean;
+  /** Skip only the proxy detector battery; fingerprint checks still run. */
+  skipProxyCheck?: boolean;
   model?: string;
   onLog?: (line: string) => void;
 }
@@ -119,7 +121,9 @@ export async function runSignupSession(opts: SignupSessionOptions): Promise<Sign
   let exitCode = 0;
   try {
     const preflightOn =
-      opts.skipPreflight !== true && process.env.PREFLIGHT !== "false";
+      opts.skipPreflight !== true &&
+      opts.skipProxyCheck !== true &&
+      process.env.PREFLIGHT !== "false";
     const fingerprintCheckOn =
       opts.skipPreflight !== true &&
       process.env.PREFLIGHT_FINGERPRINT !== "false" &&

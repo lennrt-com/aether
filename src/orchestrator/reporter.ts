@@ -9,7 +9,9 @@ const RED = "\x1b[31m";
 const CYAN = "\x1b[36m";
 
 function ts(): string {
-  return new Date().toISOString().slice(11, 19);
+  // Local wall-clock time (HH:MM:SS) so console timestamps match the operator's
+  // clock. (toTimeString() is local; toISOString() would print UTC.)
+  return new Date().toTimeString().slice(0, 8);
 }
 
 function line(color: string, label: string, detail: string): void {

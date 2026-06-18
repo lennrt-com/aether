@@ -4,6 +4,7 @@ import { select, input, confirm, checkbox } from "@inquirer/prompts";
 import { api } from "../../convex/_generated/api.js";
 import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { isProfileRestricted } from "../shared/profile.js";
+import { AGENT_MODEL_CHOICES } from "../shared/agentModels.js";
 import { createConsoleReporter } from "../orchestrator/reporter.js";
 import { provisionProfile } from "../identity/provision.js";
 import {
@@ -188,7 +189,7 @@ export async function runExperimentInteractive(opts: ExperimentOptions): Promise
     (await select({
       message: "Agent model (browser automation)",
       choices: AGENT_MODEL_CHOICES.map((m) => ({ name: m, value: m })),
-      default: "gemini-3-flash-preview",
+      default: "claude-sonnet-4-6",
     }));
 
   const maxSteps =
@@ -208,7 +209,7 @@ export async function runExperimentInteractive(opts: ExperimentOptions): Promise
   const orchArgs: string[] = [profileId, "--prompt", prompt];
   if (opts.startUrl) orchArgs.push("--start-url", opts.startUrl);
   if (maxSteps) orchArgs.push("--max-steps", maxSteps);
-  orchArgs.push("--model", agentModel ?? "gemini-3-flash-preview");
+  orchArgs.push("--model", agentModel ?? "claude-sonnet-4-6");
 
   return spawnTsxScript("src/orchestrator/experiment.ts", orchArgs, { TZ: tz });
 }
@@ -252,7 +253,7 @@ export async function runExperimentAll(opts: ExperimentAllOptions): Promise<numb
 
   const prompt = opts.prompt?.trim() || DEFAULT_RESNAPSHOT_PROMPT;
   const maxSteps = opts.maxSteps ?? "1";
-  const model = opts.model ?? "gemini-3-flash-preview";
+  const model = opts.model ?? "claude-sonnet-4-6";
   const startUrl = opts.startUrl ?? "https://example.com";
   const concurrency = Math.max(1, Math.trunc(Number(opts.concurrency ?? "1")) || 1);
 

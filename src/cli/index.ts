@@ -10,6 +10,7 @@ import { AGENT_MODEL_CHOICES, resolveAgentModel } from "../shared/agentModels.js
 import { timezoneForGeo } from "../shared/geo.js";
 import { convex, table, fmtTs, acctStamp, resolveProxyForCli, type ProxyPoolEntry } from "./helpers.js";
 import { runCreateInteractive, runCreateParallelInteractive, runExperimentInteractive, runExperimentAll, runRemoveProfiles, runReset, showMainMenu } from "./interactive.js";
+import { resolveAgentModelForStartup, applyAgentModelEnv } from "./agentModel.js";
 import {
   runCampaign,
   listCampaigns,
@@ -40,7 +41,7 @@ function runScript(script: string, args: string[]): Promise<number> {
 }
 
 const AGENT_MODEL_OPTION_DESC =
-  `agent LLM (${AGENT_MODEL_CHOICES.join(" | ")}, default: gemini-3-flash-preview)`;
+  `agent LLM (${AGENT_MODEL_CHOICES.join(" | ")}, default: claude-sonnet-4-6)`;
 
 // ---------------------------------------------------------------- provision
 program
@@ -94,7 +95,7 @@ program
   .option("--location <city>", "LinkedIn location override, e.g. Frankfurt, Hesse, Germany")
   .option("--max-steps <n>", "signup agent step budget")
   .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
   .action(async (opts) => {
     process.exitCode = await runCreateInteractive({
       name: opts.name,
@@ -135,7 +136,7 @@ program
   .option("--location <city>", "LinkedIn location override")
   .option("--max-steps <n>", "signup agent step budget")
   .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
   .action(async (opts) => {
     process.exitCode = await runCreateParallelInteractive({
       count: opts.count ? Number(opts.count) : undefined,
@@ -427,7 +428,7 @@ program
   .option("--url <url>", "start URL")
   .option("--instruction <text>", "override the agent instruction")
   .option("--max-steps <n>", "agent step budget (default: 15)")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
   .action(async (profileIdArg, opts) => {
     const { client, workerKey } = convex();
     let profileId = profileIdArg as Id<"profiles"> | undefined;
@@ -476,7 +477,7 @@ program
     if (opts.url) args.push("--url", opts.url);
     if (opts.instruction) args.push("--instruction", opts.instruction);
     if (opts.maxSteps) args.push("--max-steps", String(opts.maxSteps));
-    args.push("--model", opts.model ?? "gemini-3-flash-preview");
+    args.push("--model", opts.model ?? "claude-sonnet-4-6");
 
     process.exitCode = await new Promise<number>((resolve) => {
       const child = spawn("node", args, {
@@ -688,7 +689,7 @@ program
   .description("enqueue a LinkedIn signup task (worker picks it up)")
   .option("--max-steps <n>")
   .option("--skip-preflight")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
   .action(async (profileId, opts) => {
     await enqueueTask(profileId, "signup", {
       ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
@@ -701,7 +702,7 @@ program
   .command("login <profileId>")
   .description("enqueue a LinkedIn login task (uses stored credentials)")
   .option("--max-steps <n>")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
   .action(async (profileId, opts) => {
     await enqueueTask(profileId, "login", {
       ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
@@ -750,8 +751,9 @@ campaignCmd
   .option("--persona-prompt <text>")
   .option("--persona-model <alias>")
   .option("--location <city>")
-  .option("--skip-preflight")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
+  .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
+  .option("--skip-proxy-check", "skip only the proxy checks; fingerprint checks still run")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC)
   .option("--probe-interval <minutes>", "extra restriction probe interval for campaign members (0=off)")
   .action(async (opts) => {
     const runOpts: CampaignRunOptions = {
@@ -772,6 +774,7 @@ campaignCmd
       personaModel: opts.personaModel,
       location: opts.location,
       skipPreflight: opts.skipPreflight,
+      skipProxyCheck: opts.skipProxyCheck,
       model: opts.model,
       probeIntervalMs: opts.probeInterval ? Number(opts.probeInterval) * 60_000 : undefined,
     };
@@ -817,7 +820,11 @@ campaignCmd
 program
   .command("worker")
   .description("start the worker loop (step 2 — claims tasks, spawns runners)")
-  .action(async () => {
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC)
+  .action(async (opts) => {
+    const alias = await resolveAgentModelForStartup({ cliModel: opts.model });
+    const resolved = applyAgentModelEnv(alias);
+    console.log(`[worker] agent model: ${alias} (${resolved})`);
     await import("../worker/main.js");
   });
 

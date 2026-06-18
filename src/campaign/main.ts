@@ -8,6 +8,7 @@ import { provisionProfile } from "../identity/provision.js";
 import { timezoneForGeo } from "../shared/geo.js";
 import { createConsoleReporter } from "../orchestrator/reporter.js";
 import { promptCreateSharedSettings, type CreateOptions } from "../cli/createShared.js";
+import { resolveAgentModelForStartup } from "../cli/agentModel.js";
 import {
   acctStamp,
   convex,
@@ -27,6 +28,7 @@ export interface CampaignRunOptions extends CreateOptions {
   perHour?: number;
   probeIntervalMs?: number;
   proxyStrategy?: "rotate_pool" | "single";
+  skipProxyCheck?: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -177,6 +179,7 @@ export async function runCampaign(opts: CampaignRunOptions): Promise<number> {
 
   let campaignId = opts.id as Id<"campaigns"> | undefined;
   let campaign: Doc<"campaigns"> | null = null;
+  let agentModel: string | undefined;
 
   if (campaignId) {
     campaign = (await client.query(api.campaigns.get, { campaignId })) as Doc<"campaigns"> | null;
@@ -184,7 +187,11 @@ export async function runCampaign(opts: CampaignRunOptions): Promise<number> {
     if (campaign.status === "cancelled" || campaign.status === "done") {
       throw new Error(`campaign is ${campaign.status} — cannot resume`);
     }
-    console.log(`[campaign] resuming ${campaign.name} (${campaignId})`);
+    agentModel = await resolveAgentModelForStartup({
+      cliModel: opts.model,
+      storedModel: campaign.agentModel,
+    });
+    console.log(`[campaign] resuming ${campaign.name} (${campaignId}) — agent model: ${agentModel}`);
   } else {
     const needsPrompt = opts.target == null || opts.perHour == null;
     const settings = needsPrompt ? await promptCampaignRunOptions(opts) : opts;
@@ -218,6 +225,10 @@ export async function runCampaign(opts: CampaignRunOptions): Promise<number> {
       pool.find((p) => p._id === proxyPoolId)?.timezone ??
       timezoneForGeo(geo, process.env.DEFAULT_TZ ?? "Europe/Berlin");
 
+    agentModel = await resolveAgentModelForStartup({
+      cliModel: opts.model ?? settings.model,
+    });
+
     campaignId = await client.mutation(api.campaigns.create, {
       workerKey,
       name: settings.name ?? `campaign-${acctStamp()}`,
@@ -226,18 +237,26 @@ export async function runCampaign(opts: CampaignRunOptions): Promise<number> {
       geo,
       timezone,
       role: settings.role,
-      agentModel: settings.model,
+      agentModel,
       personaModel: settings.personaModel,
       personaPrompt: settings.personaPrompt,
       location: settings.location,
       skipPreflight: settings.skipPreflight,
+      skipProxyCheck: settings.skipProxyCheck,
       proxyStrategy,
       proxyPoolId,
     });
     campaign = (await client.query(api.campaigns.get, { campaignId })) as Doc<"campaigns">;
     console.log(
-      `[campaign] started ${campaign!.name} (${campaignId}) — target ${campaign!.targetHealthy} healthy, max ${campaign!.maxPerHour}/hr`,
+      `[campaign] started ${campaign!.name} (${campaignId}) — target ${campaign!.targetHealthy} healthy, max ${campaign!.maxPerHour}/hr, agent model: ${agentModel}`,
     );
+  }
+
+  if (!agentModel) {
+    agentModel = await resolveAgentModelForStartup({
+      cliModel: opts.model,
+      storedModel: campaign?.agentModel,
+    });
   }
 
   const probeIntervalMs = opts.probeIntervalMs ?? DEFAULT_PROBE_INTERVAL_MS;
@@ -330,9 +349,9 @@ export async function runCampaign(opts: CampaignRunOptions): Promise<number> {
     });
 
     reporter.phase(`signup ${profileName} (${profileId})`);
-    const orchArgs: string[] = [profileId];
-    if (campaign.agentModel) orchArgs.push("--model", campaign.agentModel);
+    const orchArgs: string[] = [profileId, "--model", agentModel];
     if (campaign.skipPreflight) orchArgs.push("--skip-preflight");
+    if (campaign.skipProxyCheck) orchArgs.push("--skip-proxy-check");
 
     const signupResult = await spawnTsxScriptTagged(
       profileName,
@@ -438,6 +457,8 @@ if (isMain) {
     else if (a === "--target" && args[i + 1]) opts.target = Number(args[++i]);
     else if (a === "--per-hour" && args[i + 1]) opts.perHour = Number(args[++i]);
     else if (a === "--name" && args[i + 1]) opts.name = args[++i];
+    else if (a === "--model" && args[i + 1]) opts.model = args[++i];
+    else if (a === "--skip-proxy-check") opts.skipProxyCheck = true;
     else if (a === "--probe-interval" && args[i + 1]) opts.probeIntervalMs = Number(args[++i]) * 60_000;
   }
   process.exitCode = await runCampaign(opts);

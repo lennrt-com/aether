@@ -14,6 +14,7 @@ const { values, positionals } = parseArgs({
   options: {
     "max-steps": { type: "string" },
     "skip-preflight": { type: "boolean", default: false },
+    "skip-proxy-check": { type: "boolean", default: false },
     model: { type: "string" },
   },
 });
@@ -56,6 +57,8 @@ if (bundle.proxyBinding) {
 }
 if (values["skip-preflight"]) {
   reporter.info("skipping proxy + fingerprint checks — LinkedIn signup directly");
+} else if (values["skip-proxy-check"]) {
+  reporter.info("skipping proxy checks — fingerprint checks still run");
 }
 
 let exitCode = 1;
@@ -67,6 +70,7 @@ try {
     bundle,
     maxSteps: values["max-steps"] ? Number(values["max-steps"]) : undefined,
     skipPreflight: values["skip-preflight"] ?? false,
+    skipProxyCheck: values["skip-proxy-check"] ?? false,
     model: values.model,
     onLog: (line) => {
       const formatted = formatStagehandLog(line);

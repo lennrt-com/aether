@@ -10,12 +10,14 @@ import { CHANNEL } from "../channels/router.js";
 import { createUnipileClient, UnipileApiError } from "../channels/unipile.js";
 import { createEmitter } from "../runner/emit.js";
 import type { TaskType } from "../shared/types.js";
+import { resolveAgentModel } from "../shared/agentModels.js";
 
 type ClaimBundle = NonNullable<FunctionReturnType<typeof api.tasks.claimNext>>;
 
 const POLL_MS = 15_000;
 const TASK_HEARTBEAT_MS = 2 * 60 * 1000;
 const WORKER_HEARTBEAT_MS = 60_000;
+const workerAgentModel = resolveAgentModel(process.env.AGENT_MODEL);
 
 const convexUrl = process.env.CONVEX_URL;
 const workerKey = process.env.WORKER_KEY;
@@ -32,6 +34,7 @@ const workerId = await convex.mutation(api.workers.register, {
   maxSessions,
 });
 console.log(`[worker] registered ${workerName} (${workerId}), maxSessions=${maxSessions}`);
+console.log(`[worker] agent model: ${workerAgentModel}`);
 
 setInterval(() => {
   convex
@@ -116,7 +119,14 @@ function runTask(bundle: ClaimBundle): Promise<void> {
     const child = spawn(
       "node",
       ["--import", "tsx", "src/runner/main.ts", JSON.stringify(bundle)],
-      { env: { ...process.env, TZ: tz }, stdio: "inherit" },
+      {
+        env: {
+          ...process.env,
+          TZ: tz,
+          AGENT_MODEL: process.env.AGENT_MODEL ?? workerAgentModel,
+        },
+        stdio: "inherit",
+      },
     );
 
     const heartbeat = setInterval(() => {

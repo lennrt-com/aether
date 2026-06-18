@@ -9,6 +9,7 @@ import { buildCaptchaTools } from "./captchaTools.js";
 import { buildEmailTools } from "./emailTools.js";
 import { buildCompleteOnboardingInstruction, FEED_URL } from "./behaviors.js";
 import { loadAgentInstructions } from "./loadAgentInstructions.js";
+import { createAgent } from "./agentDefaults.js";
 import {
   captureLinkedInProfileUrl,
   runLogin,
@@ -134,7 +135,7 @@ export async function runCompleteOnboarding(deps: AccountFlowDeps): Promise<bool
   });
   const tools = { ...emailTools, ...captchaTools };
 
-  const agent = stagehand.agent({ mode: "hybrid", tools });
+  const agent = createAgent(stagehand, { mode: "hybrid", tools });
   const result = await agent.execute({
     instruction: buildCompleteOnboardingInstruction(templates),
     maxSteps: deps.maxSteps ?? COMPLETE_ONBOARDING_MAX_STEPS,

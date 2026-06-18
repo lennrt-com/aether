@@ -22,6 +22,7 @@ import {
   withDirectActInstruction,
 } from "./behaviors.js";
 import { loadAgentInstructions } from "./loadAgentInstructions.js";
+import { createAgent } from "./agentDefaults.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
@@ -222,7 +223,7 @@ try {
         // settlePage step did.
         const navPrefix = url ? `First, navigate the browser directly to ${url}.\n\n` : "";
         const agentInstruction = navPrefix + withDirectActInstruction(instruction, templates);
-        const agent = session.stagehand.agent({ mode: "hybrid" });
+        const agent = createAgent(session.stagehand, { mode: "hybrid" });
         agentResult = await agent.execute({
           instruction: agentInstruction,
           maxSteps,

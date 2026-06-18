@@ -10,6 +10,7 @@ import type { Stagehand } from "@browserbasehq/stagehand";
 import type { Emit } from "./emit.js";
 import { buildCaptchaTools } from "./captchaTools.js";
 import { classifyPage } from "./classify.js";
+import { createAgent } from "./agentDefaults.js";
 
 const DEFAULT_EXPERIMENT_MAX_STEPS = 50;
 
@@ -85,7 +86,7 @@ export async function runExperiment(deps: ExperimentDeps): Promise<ExperimentRes
   }
   await classifyPage(stagehand, emit, actionId);
 
-  const agent = stagehand.agent({ mode: "hybrid", tools: captchaTools });
+  const agent = createAgent(stagehand, { mode: "hybrid", tools: captchaTools });
   const result = await agent.execute({
     instruction: prompt,
     maxSteps,

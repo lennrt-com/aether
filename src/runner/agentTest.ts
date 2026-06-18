@@ -22,6 +22,7 @@ import { resolveAgentModel } from "../shared/agentModels.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
+import { createAgent } from "./agentDefaults.js";
 
 const DEFAULT_START_URL = "https://anti-detect-scanner-production.up.railway.app/";
 const DEFAULT_INSTRUCTION = [
@@ -149,7 +150,7 @@ try {
   await new Promise((r) => setTimeout(r, 7000));
 
   console.log("[agent] running...\n");
-  const agent = session.stagehand.agent({ mode: "hybrid" });
+  const agent = createAgent(session.stagehand, { mode: "hybrid" });
   const result = await agent.execute({
     instruction,
     maxSteps,

@@ -24,6 +24,7 @@ import {
   type PersonaLike,
 } from "./behaviors.js";
 import { loadAgentInstructions } from "./loadAgentInstructions.js";
+import { createAgent } from "./agentDefaults.js";
 
 const DEFAULT_SIGNUP_URL = "https://www.linkedin.com/signup";
 const SIGNUP_MAX_STEPS = 1250;
@@ -327,7 +328,7 @@ async function runAgentFeedWarmup(
   try {
     const navPrefix = `First, navigate the browser directly to ${behavior.url}.\n\n`;
     const agentInstruction = navPrefix + withDirectActInstruction(behavior.instruction, templates);
-    const agent = stagehand.agent({ mode: "hybrid" });
+    const agent = createAgent(stagehand, { mode: "hybrid" });
     const agentResult = await agent.execute({
       instruction: agentInstruction,
       maxSteps,
@@ -443,7 +444,7 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
   await page.goto(signupUrl, { waitUntil: "load" });
   await classifyPage(stagehand, emit, actionId);
 
-  const agent = stagehand.agent({ mode: "hybrid", tools });
+  const agent = createAgent(stagehand, { mode: "hybrid", tools });
   const result = await agent.execute({
     instruction: buildSignupInstruction(personaLike, templates),
     maxSteps: deps.maxSteps ?? SIGNUP_MAX_STEPS,
@@ -623,7 +624,7 @@ export async function runLogin(
   await page.goto(LOGIN_URL, { waitUntil: "load" });
   await classifyPage(stagehand, emit, actionId);
 
-  const agent = stagehand.agent({ mode: "hybrid", tools });
+  const agent = createAgent(stagehand, { mode: "hybrid", tools });
   const result = await agent.execute({
     instruction: buildLoginInstruction(templates),
     maxSteps: deps.maxSteps ?? LOGIN_MAX_STEPS,

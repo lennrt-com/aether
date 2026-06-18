@@ -30,6 +30,7 @@ import type * as personas from "../personas.js";
 import type * as ping from "../ping.js";
 import type * as policies from "../policies.js";
 import type * as profiles from "../profiles.js";
+import type * as provisioningRescue from "../provisioningRescue.js";
 import type * as proxies from "../proxies.js";
 import type * as proxyPool from "../proxyPool.js";
 import type * as scheduler from "../scheduler.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   ping: typeof ping;
   policies: typeof policies;
   profiles: typeof profiles;
+  provisioningRescue: typeof provisioningRescue;
   proxies: typeof proxies;
   proxyPool: typeof proxyPool;
   scheduler: typeof scheduler;

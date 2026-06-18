@@ -711,6 +711,18 @@ program
   });
 
 program
+  .command("complete-onboarding <profileId>")
+  .description("enqueue a provisioning rescue task (verify email, capture profile URL, promote to warming)")
+  .option("--max-steps <n>")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
+  .action(async (profileId, opts) => {
+    await enqueueTask(profileId, "complete_onboarding", {
+      ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
+      model: resolveAgentModel(opts.model),
+    });
+  });
+
+program
   .command("enqueue <profileId> <type>")
   .description("enqueue an arbitrary task (browse, warmup_feed, engage_post, ...)")
   .option("--payload <json>", "task payload as JSON", "{}")

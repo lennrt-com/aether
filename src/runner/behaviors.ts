@@ -157,6 +157,17 @@ export function buildLoginInstruction(
   );
 }
 
+export function buildCompleteOnboardingInstruction(
+  templates: AgentInstructionTemplates = DEFAULT_AGENT_INSTRUCTION_TEMPLATES,
+): string {
+  return withDirectActInstruction(
+    interpolateTemplate(templates.complete_onboarding, {
+      phoneVerification: templates.phone_verification,
+    }),
+    templates,
+  );
+}
+
 export function buildSignupInstruction(
   persona: PersonaLike | null,
   templates: AgentInstructionTemplates = DEFAULT_AGENT_INSTRUCTION_TEMPLATES,

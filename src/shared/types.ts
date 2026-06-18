@@ -26,6 +26,7 @@ export const TASK_TYPES = [
   "browse",
   "signup",
   "login",
+  "complete_onboarding",
   "warmup_feed",
   "engage_post",
   "send_message",

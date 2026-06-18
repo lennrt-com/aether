@@ -217,6 +217,7 @@ export default defineSchema({
     personaPrompt: v.optional(v.string()),
     location: v.optional(v.string()),
     skipPreflight: v.optional(v.boolean()),
+    skipProxyCheck: v.optional(v.boolean()),
     proxyStrategy: campaignProxyStrategy,
     proxyPoolId: v.optional(v.id("proxyPool")),
     lastAttemptStartedAt: v.optional(v.number()),

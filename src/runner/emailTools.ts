@@ -15,6 +15,7 @@ export interface EmailToolsState {
   smtpDevAccountId: string | null;
   inboxId: string | null;
   verificationCode: string | null;
+  verificationLink: string | null;
 }
 
 export type EmailToolAudit = (
@@ -46,6 +47,7 @@ export function buildEmailTools(opts: {
     smtpDevAccountId: opts.existing?.smtpDevAccountId ?? null,
     inboxId: null,
     verificationCode: null,
+    verificationLink: null,
   };
 
   const tools: StagehandToolSet = {
@@ -129,6 +131,62 @@ export function buildEmailTools(opts: {
           return { success: true, code: result.code, subject: result.subject };
         } catch (err) {
           await audit("read_verification_code", { error: String(err) }, false);
+          return { success: false, error: String(err) };
+        }
+      },
+    }),
+
+    read_verification_link: tool({
+      description:
+        "Read the latest email verification link from the inbox of the email address " +
+        "created with create_email_address (or the existing mailbox). Polls until the email arrives. " +
+        "ONLY call this after triggering LinkedIn to send a verification email (e.g. from the email verification banner). " +
+        "Returns a URL to open in the browser — NOT a 6-digit code.",
+      inputSchema: z.object({
+        timeoutSeconds: z
+          .number()
+          .min(10)
+          .max(180)
+          .optional()
+          .describe("How long to wait for the email (default 120s)"),
+      }),
+      execute: async ({ timeoutSeconds }) => {
+        try {
+          if (!state.smtpDevAccountId) {
+            return {
+              success: false,
+              error: "no email address available — credentials must include a smtp.dev mailbox",
+            };
+          }
+          if (!state.inboxId) {
+            state.inboxId = (await client.findInbox(state.smtpDevAccountId)).id;
+          }
+          const result = await client.waitForVerificationLink(
+            state.smtpDevAccountId,
+            state.inboxId,
+            { timeoutMs: (timeoutSeconds ?? 120) * 1000 },
+          );
+          if (!result) {
+            const messages = await client.listMessages(state.smtpDevAccountId, state.inboxId);
+            await audit(
+              "read_verification_link",
+              { error: "timeout", inboxCount: messages.length },
+              false,
+            );
+            return {
+              success: false,
+              error: `no verification link found in ${messages.length} inbox message(s) before the timeout`,
+            };
+          }
+          state.verificationLink = result.url;
+          await audit(
+            "read_verification_link",
+            { subject: result.subject, url: result.url },
+            true,
+          );
+          return { success: true, url: result.url, subject: result.subject };
+        } catch (err) {
+          await audit("read_verification_link", { error: String(err) }, false);
           return { success: false, error: String(err) };
         }
       },

@@ -154,7 +154,7 @@ async function persistCredentials(
 }
 
 /** Visit /in/me/ while logged in; LinkedIn redirects to the member's canonical profile URL. */
-async function captureLinkedInProfileUrl(
+export async function captureLinkedInProfileUrl(
   stagehand: Stagehand,
   convex: ConvexHttpClient,
   workerKey: string,
@@ -554,7 +554,10 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
   return true;
 }
 
-export async function runLogin(deps: AccountFlowDeps): Promise<boolean> {
+export async function runLogin(
+  deps: AccountFlowDeps,
+  opts?: { transition?: boolean },
+): Promise<boolean> {
   const { stagehand, convex, workerKey, emit, profile, proxy } = deps;
   const actionId = randomUUID();
 
@@ -640,7 +643,7 @@ export async function runLogin(deps: AccountFlowDeps): Promise<boolean> {
   }
 
   await emit("LoginSucceeded", { email: creds.email }, actionId);
-  if (profile.status === "provisioning") {
+  if (opts?.transition !== false && profile.status === "provisioning") {
     await convex.mutation(api.profiles.transition, {
       workerKey,
       profileId: profile._id,

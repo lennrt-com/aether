@@ -72,7 +72,7 @@ export async function evaluateCore(
   const status = profile.status;
   if (
     opts?.restrictionDetected &&
-    ["warming", "active", "cooldown", "warning", "recovering"].includes(status)
+    ["warming", "active", "cooldown", "warning", "recovering", "provisioning"].includes(status)
   ) {
     await markRestricted(ctx, profileId, opts.restrictionSource);
     await applyTransition(ctx, profileId, "restricted", "RestrictionDetected signal");

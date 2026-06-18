@@ -13,6 +13,7 @@ import { evalInPage } from "./cdpEval.js";
 import { launchSession } from "./session.js";
 import { resolveAgentModel } from "../shared/agentModels.js";
 import { runLogin } from "./signup.js";
+import { runCompleteOnboarding } from "./completeOnboarding.js";
 import { runPreflight } from "./preflight.js";
 import { runFingerprintCheck } from "./fingerprintCheck.js";
 import {
@@ -136,7 +137,7 @@ await convex.mutation(api.tasks.setSessionEgress, {
 
 let exitCode = 0;
 try {
-  const BROWSER_TASK_TYPES = ["browse", "login", "warmup_feed", "engage_post"];
+  const BROWSER_TASK_TYPES = ["browse", "login", "complete_onboarding", "warmup_feed", "engage_post"];
   if (!BROWSER_TASK_TYPES.includes(task.type)) {
     throw new Error(`unsupported task type: ${task.type}`);
   }
@@ -161,6 +162,30 @@ try {
     };
     try {
       const ok = await runLogin(flowDeps);
+      if (!ok) exitCode = 1;
+    } catch (err) {
+      await emit("ActionFailed", { error: String(err) }, randomUUID());
+      exitCode = 1;
+    }
+  } else if (task.type === "complete_onboarding") {
+    const flowDeps = {
+      stagehand: session.stagehand,
+      convex,
+      workerKey,
+      emit,
+      profile: bundle.profile,
+      persona: bundle.persona,
+      maxSteps: payload.maxSteps,
+      proxy: bundle.proxyBinding
+        ? {
+            server: bundle.proxyBinding.server,
+            username: bundle.proxyBinding.username,
+            password: bundle.proxyBinding.password,
+          }
+        : undefined,
+    };
+    try {
+      const ok = await runCompleteOnboarding(flowDeps);
       if (!ok) exitCode = 1;
     } catch (err) {
       await emit("ActionFailed", { error: String(err) }, randomUUID());

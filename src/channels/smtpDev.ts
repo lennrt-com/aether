@@ -54,10 +54,24 @@ export interface SmtpDevClient {
     mailboxId: string,
     opts?: { timeoutMs?: number; pollMs?: number; senderPattern?: RegExp },
   ): Promise<{ code: string; messageId: string; subject: string } | null>;
+  /**
+   * Poll the inbox until a LinkedIn email verification link arrives.
+   * Returns null on timeout.
+   */
+  waitForVerificationLink(
+    accountId: string,
+    mailboxId: string,
+    opts?: { timeoutMs?: number; pollMs?: number; senderPattern?: RegExp },
+  ): Promise<{ url: string; messageId: string; subject: string } | null>;
 }
 
 const CODE_RE = /\b(\d{6})\b/;
 const DEFAULT_SENDER_RE = /linkedin|microsoft|office365/i;
+// LinkedIn email verification links (verify page, comm/verify, tracking redirects).
+const LINK_RE =
+  /https?:\/\/(?:[a-z0-9-]+\.)*linkedin\.com\/[^\s"'<>]+(?:verify|email-confirmation|confirm)[^\s"'<>]*/gi;
+const TRACKING_LINK_RE =
+  /https?:\/\/(?:[a-z0-9-]+\.)*e\.linkedin\.com\/[^\s"'<>]+/gi;
 
 function htmlToText(html: unknown): string {
   if (typeof html === "string") return html;
@@ -71,6 +85,28 @@ export function extractVerificationCode(msg: SmtpDevMessage): string | null {
   for (const field of [msg.subject, msg.intro, msg.text, htmlToText(msg.html)]) {
     const match = field?.match(CODE_RE);
     if (match) return match[1];
+  }
+  return null;
+}
+
+function pickBestVerificationUrl(text: string): string | null {
+  const candidates: string[] = [];
+  for (const re of [LINK_RE, TRACKING_LINK_RE]) {
+    re.lastIndex = 0;
+    for (const m of text.matchAll(re)) {
+      if (m[0]) candidates.push(m[0]);
+    }
+  }
+  if (!candidates.length) return null;
+  const preferred = candidates.find((u) => /linkedin\.com\/(comm\/)?verify/i.test(u));
+  return preferred ?? candidates[0];
+}
+
+export function extractVerificationLink(msg: SmtpDevMessage): string | null {
+  for (const field of [msg.subject, msg.intro, msg.text, htmlToText(msg.html)]) {
+    if (!field) continue;
+    const url = pickBestVerificationUrl(field);
+    if (url) return url;
   }
   return null;
 }
@@ -142,6 +178,17 @@ export function createSmtpDevClient(
     return extractVerificationCode(full);
   }
 
+  async function resolveLink(
+    accountId: string,
+    mailboxId: string,
+    msg: SmtpDevMessage,
+  ): Promise<string | null> {
+    let link = extractVerificationLink(msg);
+    if (link) return link;
+    const full = await getMessage(accountId, mailboxId, msg.id);
+    return extractVerificationLink(full);
+  }
+
   return {
     createAccount: (address, password) =>
       request("POST", "/accounts", { address, password }),
@@ -165,6 +212,27 @@ export function createSmtpDevClient(
         for (const msg of messages) {
           const code = await resolveCode(accountId, mailboxId, msg);
           if (code) return { code, messageId: msg.id, subject: msg.subject ?? "" };
+        }
+        if (Date.now() + pollMs > deadline) return null;
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+    },
+    waitForVerificationLink: async (accountId, mailboxId, opts) => {
+      const timeoutMs = opts?.timeoutMs ?? 120_000;
+      const pollMs = opts?.pollMs ?? 5_000;
+      const senderRe = opts?.senderPattern ?? DEFAULT_SENDER_RE;
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const messages = await listMessages(accountId, mailboxId);
+        for (const msg of messages) {
+          const sender = `${msg.from?.address ?? ""} ${msg.from?.name ?? ""}`;
+          if (!senderRe.test(sender)) continue;
+          const url = await resolveLink(accountId, mailboxId, msg);
+          if (url) return { url, messageId: msg.id, subject: msg.subject ?? "" };
+        }
+        for (const msg of messages) {
+          const url = await resolveLink(accountId, mailboxId, msg);
+          if (url) return { url, messageId: msg.id, subject: msg.subject ?? "" };
         }
         if (Date.now() + pollMs > deadline) return null;
         await new Promise((r) => setTimeout(r, pollMs));

@@ -14,7 +14,7 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 30 * 60 * 1000;
 const CLAIMABLE_STATUSES = ["warming", "active", "cooldown"];
 // signup/login are the only tasks runnable before the profile leaves provisioning.
-const PROVISIONING_TASK_TYPES = ["signup", "login"];
+const PROVISIONING_TASK_TYPES = ["signup", "login", "complete_onboarding"];
 // Mirror of src/channels/router.ts (Convex can't import from src/).
 const API_TASK_TYPES = ["send_message", "send_invitation", "fetch_profile"];
 

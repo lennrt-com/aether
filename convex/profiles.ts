@@ -166,6 +166,31 @@ export const transition = mutation({
   },
 });
 
+/** Atomically mark restriction benchmark columns and transition to restricted. */
+export const restrictProfile = mutation({
+  args: {
+    workerKey: v.string(),
+    profileId: v.id("profiles"),
+    source: v.optional(v.string()),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    assertWorkerKey(args.workerKey);
+    const profile = await ctx.db.get(args.profileId);
+    if (!profile) throw new Error(`profile not found: ${args.profileId}`);
+    if (profile.status === "restricted") return;
+    await markRestricted(ctx, args.profileId, args.source);
+    if (profile.status !== "restricted") {
+      await applyTransition(
+        ctx,
+        args.profileId,
+        "restricted",
+        args.reason ?? args.source ?? "restricted",
+      );
+    }
+  },
+});
+
 // Backfill restriction columns for profiles already in status restricted.
 async function backfillRestrictionFieldsCore(ctx: MutationCtx): Promise<{ patched: number }> {
   let patched = 0;

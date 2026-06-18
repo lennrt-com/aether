@@ -45,4 +45,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "provisioning rescue enqueue",
+  { hours: 6 },
+  internal.provisioningRescue.cronEnqueueRescue,
+  {},
+);
+
 export default crons;

@@ -9,6 +9,7 @@ export const CHANNEL: Record<TaskType, "api" | "browser"> = {
   browse: "browser",
   signup: "browser",
   login: "browser",
+  complete_onboarding: "browser",
   warmup_feed: "browser",
   engage_post: "browser",
 };

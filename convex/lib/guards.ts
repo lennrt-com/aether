@@ -11,7 +11,7 @@ export type ProfileStatus =
   | "warning" | "restricted" | "recovering" | "retired";
 
 export const ALLOWED_TRANSITIONS: Record<ProfileStatus, ProfileStatus[]> = {
-  provisioning: ["warming"],
+  provisioning: ["warming", "restricted"],
   warming: ["active", "warning", "restricted", "retired"],
   active: ["cooldown", "warning", "restricted", "retired"],
   cooldown: ["active", "warning", "restricted"],

@@ -1,0 +1,5 @@
+[build]
+buildCommand = "cd dashboard && pnpm install --frozen-lockfile && pnpm run build"
+
+[deploy]
+startCommand = "cd dashboard && pnpm start"

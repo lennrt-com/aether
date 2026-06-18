@@ -6,6 +6,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Analytics01Icon,
+  DashboardCircleIcon,
   Logout03Icon,
   UserAccountIcon,
 } from "@hugeicons/core-free-icons";
@@ -24,6 +25,11 @@ import {
 
 const navItems = [
   {
+    title: "Pool",
+    href: "/pool",
+    icon: DashboardCircleIcon,
+  },
+  {
     title: "Overview",
     href: "/",
     icon: Analytics01Icon,
@@ -41,19 +47,26 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="border-r border-hairline bg-surface-card">
-      <SidebarHeader className="border-b border-hairline px-4 py-5">
-        <div className="space-y-1">
-          <p className="font-medium tracking-tight text-ink">blessGTM Admin</p>
-          <p className="text-xs tracking-wide text-muted">
-            Pool health & survival
-          </p>
+      <SidebarHeader className="border-b border-hairline px-4 py-4">
+        <div className="flex items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary font-display text-sm font-semibold text-on-primary">
+            bG
+          </span>
+          <div className="min-w-0">
+            <p className="text-[0.7rem] font-medium uppercase tracking-[0.12em] text-muted">
+              Workspace
+            </p>
+            <p className="truncate font-medium tracking-tight text-ink">
+              blessGTM Admin
+            </p>
+          </div>
         </div>
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-            Monitoring
+            Main Menu
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>

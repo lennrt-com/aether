@@ -20,6 +20,7 @@ import {
   type PersonaLike,
   withDirectActInstruction,
 } from "./behaviors.js";
+import { loadAgentInstructions } from "./loadAgentInstructions.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
@@ -167,7 +168,8 @@ try {
     }
   } else {
     const personaLike = (bundle.persona?.data ?? null) as PersonaLike | null;
-    const behavior = payload.instruction ? null : buildBehavior(task.type, personaLike);
+    const templates = await loadAgentInstructions(convex, workerKey);
+    const behavior = payload.instruction ? null : buildBehavior(task.type, personaLike, templates);
     const url = payload.url ?? behavior?.url ?? process.env.START_URL;
     const instruction = payload.instruction ?? behavior?.instruction;
     const maxSteps =
@@ -194,7 +196,7 @@ try {
         // The scroll preamble settles lazy feed content the way the old
         // settlePage step did.
         const navPrefix = url ? `First, navigate the browser directly to ${url}.\n\n` : "";
-        const agentInstruction = navPrefix + withDirectActInstruction(instruction);
+        const agentInstruction = navPrefix + withDirectActInstruction(instruction, templates);
         const agent = session.stagehand.agent({ mode: "hybrid" });
         agentResult = await agent.execute({
           instruction: agentInstruction,

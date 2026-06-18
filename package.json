@@ -2,6 +2,7 @@
   "name": "blessgtm-hybrid-agent",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.20.0",
   "engines": {
     "node": ">=20"
   },

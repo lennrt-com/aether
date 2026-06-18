@@ -9,6 +9,7 @@
  */
 
 import type * as age from "../age.js";
+import type * as agentInstructions from "../agentInstructions.js";
 import type * as auth from "../auth.js";
 import type * as campaigns from "../campaigns.js";
 import type * as credentials from "../credentials.js";
@@ -45,6 +46,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   age: typeof age;
+  agentInstructions: typeof agentInstructions;
   auth: typeof auth;
   campaigns: typeof campaigns;
   credentials: typeof credentials;

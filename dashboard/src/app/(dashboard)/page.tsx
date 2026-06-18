@@ -65,6 +65,25 @@ function formatNumber(value: number | null | undefined, digits = 0): string {
   });
 }
 
+function formatDurationMinutes(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (value < 60) {
+    return `${formatNumber(value, 1)}m`;
+  }
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  if (minutes < 1) {
+    return `${hours}h`;
+  }
+  return `${hours}h ${formatNumber(minutes, 0)}m`;
+}
+
+function formatSample(count: number): string {
+  return count === 1 ? "1 account" : `${count.toLocaleString()} accounts`;
+}
+
 function StatCard({
   label,
   value,
@@ -120,12 +139,14 @@ function ChartCardSkeleton({ title }: { title: string }) {
 }
 
 export default function DashboardPage() {
+  const kpiOverview = useQuery(api.dashboard.kpiOverview);
   const poolOverview = useQuery(api.dashboard.poolOverview);
   const banRate = useQuery(api.dashboard.banRate);
   const ageAtRestriction = useQuery(api.dashboard.ageAtRestriction);
   const survivalCurve = useQuery(api.dashboard.survivalCurve);
 
-  const loading =
+  const kpiLoading = kpiOverview === undefined;
+  const chartsLoading =
     poolOverview === undefined ||
     banRate === undefined ||
     ageAtRestriction === undefined ||
@@ -151,17 +172,19 @@ export default function DashboardPage() {
             Tier 1 · Read-only
           </Badge>
           <h1 className="font-display text-4xl font-medium tracking-tight text-ink md:text-5xl">
-            Fleet health overview
+            Fleet KPIs
           </h1>
           <p className="max-w-2xl text-base tracking-wide text-body">
-            Live pool composition, restriction rates, and survival benchmarks across
-            the LinkedIn account fleet.
+            Account survival, creation friction, and live pool health across the
+            LinkedIn fleet.
           </p>
         </section>
 
         <section className="mb-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {loading ? (
+          {kpiLoading ? (
             <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
               <StatCardSkeleton />
               <StatCardSkeleton />
               <StatCardSkeleton />
@@ -171,34 +194,60 @@ export default function DashboardPage() {
             </>
           ) : (
             <>
-              <StatCard label="Total accounts" value={formatNumber(poolOverview.total)} />
               <StatCard
-                label="Active pool"
-                value={formatNumber(poolOverview.activePool)}
-                hint="Warming + active + cooldown"
+                label="Avg time to ban"
+                value={`${formatNumber(kpiOverview.avgTimeToBanDays, 1)}d`}
+                hint={`${formatSample(kpiOverview.avgTimeToBanSample)} banned · signup to restriction`}
               />
               <StatCard
-                label="Restricted"
-                value={formatNumber(poolOverview.restricted)}
-                hint={`Ban rate ${formatNumber(banRate.ratePct, 1)}%`}
+                label="Longest before ban"
+                value={`${formatNumber(kpiOverview.longestBannedLifespanDays, 1)}d`}
+                hint={
+                  kpiOverview.longestBannedAccountName
+                    ? `${kpiOverview.longestBannedAccountName} · signup to restriction`
+                    : "Longest-lived restricted account"
+                }
               />
-              <StatCard label="At-risk" value={formatNumber(poolOverview.atRisk)} hint="Warning status" />
               <StatCard
                 label="Avg account age"
-                value={`${formatNumber(poolOverview.avgLinkedinAgeDays, 1)}d`}
-                hint="Live pool average"
+                value={`${formatNumber(kpiOverview.avgActiveAccountAgeDays, 1)}d`}
+                hint={`${formatSample(kpiOverview.avgActiveAccountAgeSample)} in active pool · warming + active + cooldown`}
               />
               <StatCard
-                label="Median survival"
-                value={`${formatNumber(survivalCurve.medianSurvivalDays, 1)}d`}
-                hint="Days until first restriction"
+                label="Oldest active account"
+                value={`${formatNumber(kpiOverview.oldestActiveAccountAgeDays, 1)}d`}
+                hint={
+                  kpiOverview.oldestActiveAccountName
+                    ? `${kpiOverview.oldestActiveAccountName} · active pool`
+                    : "Active pool · warming + active + cooldown"
+                }
+              />
+              <StatCard
+                label="Avg risk score"
+                value={formatNumber(kpiOverview.avgActiveRiskScore, 1)}
+                hint={`${formatSample(kpiOverview.avgActiveRiskScoreSample)} in active pool`}
+              />
+              <StatCard
+                label="Captcha at creation"
+                value={`${formatNumber(kpiOverview.avgCreationCaptchaPct, 1)}%`}
+                hint={`${formatNumber(kpiOverview.creationCaptchaHitCount)} of ${formatSample(kpiOverview.avgCreationCaptchaSample)} active accounts hit captcha or checkpoint during signup`}
+              />
+              <StatCard
+                label="Avg time to create"
+                value={formatDurationMinutes(kpiOverview.avgCreationTimeMinutes)}
+                hint={`${formatSample(kpiOverview.avgCreationTimeSample)} · signup session to account created`}
+              />
+              <StatCard
+                label="Ban rate"
+                value={`${formatNumber(kpiOverview.banRatePct, 1)}%`}
+                hint={`${formatNumber(kpiOverview.banCount)} of ${formatNumber(kpiOverview.banRateSample)} created accounts restricted`}
               />
             </>
           )}
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          {loading ? (
+          {chartsLoading ? (
             <>
               <ChartCardSkeleton title="Pool composition" />
               <ChartCardSkeleton title="Restrictions by phase" />

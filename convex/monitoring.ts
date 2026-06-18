@@ -9,7 +9,7 @@ import type { ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { assertWorkerKey } from "./lib/guards";
+import { assertWorkerKey, type ProfileStatus } from "./lib/guards";
 import { appendEvent } from "./events";
 import { evaluateCore } from "./health";
 import {
@@ -215,6 +215,19 @@ interface ProbeErrorDetail {
   message: string | null;
 }
 
+type RestrictionCheckResult = {
+  total: number;
+  checked: number;
+  restricted: number;
+  errors: number;
+  skipReason?: string;
+  profileId?: Id<"profiles">;
+  name?: string;
+  outcome?: ProbeOutcome;
+  retriedAfterTransient?: number;
+  errorDetails: ProbeErrorDetail[];
+};
+
 function errorDetail(target: CheckTarget, attempt: ProbeAttempt): ProbeErrorDetail {
   return {
     profileId: target.profileId,
@@ -273,6 +286,21 @@ type DiagnosticTarget = {
   skipReason: string | null;
 };
 
+type ProbeDiagnosticResult = {
+  profileId: Id<"profiles">;
+  name: string;
+  status: string;
+  isRestricted: boolean;
+  publicIdentifier: string | null;
+  outcome: "ok" | "restricted" | "error" | "skipped";
+  httpStatus: number | null;
+  errorType: string | null;
+  wouldFlagRestricted: boolean;
+  mismatch: boolean;
+  detail: string;
+  raw: unknown;
+};
+
 // Read-only target list for diagnostics. Unlike profilesToCheck this also
 // surfaces already-restricted profiles and reports WHY a profile would be
 // skipped, so false negatives can be inspected.
@@ -313,7 +341,7 @@ export const diagnosticTargets = internalQuery({
       return out;
     }
 
-    const statuses: string[] = includeRestricted
+    const statuses: ProfileStatus[] = includeRestricted
       ? [...MONITOR_STATUSES, "restricted"]
       : [...MONITOR_STATUSES];
     for (const status of statuses) {
@@ -340,7 +368,10 @@ export const probeDiagnostics = action({
     profileId: v.optional(v.id("profiles")),
     includeRestricted: v.optional(v.boolean()),
   },
-  handler: async (ctx, { workerKey, profileId, includeRestricted }) => {
+  handler: async (
+    ctx,
+    { workerKey, profileId, includeRestricted },
+  ): Promise<{ count: number; results: ProbeDiagnosticResult[] }> => {
     assertWorkerKey(workerKey);
     const apiKey = process.env.UNIPILE_API_KEY;
     const probeAccountId = process.env.UNIPILE_PROBE_ACCOUNT_ID;
@@ -354,7 +385,7 @@ export const probeDiagnostics = action({
       includeRestricted: includeRestricted ?? Boolean(profileId),
     });
 
-    const results = [];
+    const results: ProbeDiagnosticResult[] = [];
     for (const t of targets) {
       const common = {
         profileId: t.profileId,
@@ -501,7 +532,7 @@ export const recordCheckResult = internalMutation({
 
 export const runRestrictionChecks = internalAction({
   args: { profileId: v.optional(v.id("profiles")) },
-  handler: async (ctx, { profileId }) => {
+  handler: async (ctx, { profileId }): Promise<RestrictionCheckResult> => {
     const apiKey = process.env.UNIPILE_API_KEY;
     const probeAccountId = process.env.UNIPILE_PROBE_ACCOUNT_ID;
     if (!apiKey) throw new Error("UNIPILE_API_KEY is not configured on the deployment");

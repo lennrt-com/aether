@@ -13,6 +13,7 @@ import { evalInPage } from "./cdpEval.js";
 import { buildCaptchaTools } from "./captchaTools.js";
 import { buildEmailTools } from "./emailTools.js";
 import { buildPhoneTools } from "./phoneTools.js";
+import type { AgentInstructionTemplates } from "../shared/agentInstructionDefaults.js";
 import {
   buildBehavior,
   buildLoginInstruction,
@@ -22,6 +23,7 @@ import {
   withDirectActInstruction,
   type PersonaLike,
 } from "./behaviors.js";
+import { loadAgentInstructions } from "./loadAgentInstructions.js";
 
 const DEFAULT_SIGNUP_URL = "https://www.linkedin.com/signup";
 const SIGNUP_MAX_STEPS = 1250;
@@ -310,8 +312,9 @@ async function runAgentFeedWarmup(
   personaLike: PersonaLike | null,
   actionId: string,
   maxSteps: number,
+  templates: AgentInstructionTemplates,
 ): Promise<boolean> {
-  const behavior = buildBehavior("warmup_feed", personaLike);
+  const behavior = buildBehavior("warmup_feed", personaLike, templates);
   if (!behavior) return false;
 
   const feedActionId = `${actionId}:feed`;
@@ -323,7 +326,7 @@ async function runAgentFeedWarmup(
 
   try {
     const navPrefix = `First, navigate the browser directly to ${behavior.url}.\n\n`;
-    const agentInstruction = navPrefix + withDirectActInstruction(behavior.instruction);
+    const agentInstruction = navPrefix + withDirectActInstruction(behavior.instruction, templates);
     const agent = stagehand.agent({ mode: "hybrid" });
     const agentResult = await agent.execute({
       instruction: agentInstruction,
@@ -395,6 +398,7 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
 
   const { fullName, firstName, lastName } = personaData(persona);
   const personaLike = (persona?.data ?? null) as PersonaLike | null;
+  const templates = await loadAgentInstructions(convex, workerKey);
   const password = generatePassword();
   let emailCall = 0;
   let captchaCall = 0;
@@ -441,14 +445,18 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
 
   const agent = stagehand.agent({ mode: "hybrid", tools });
   const result = await agent.execute({
-    instruction: buildSignupInstruction(personaLike),
+    instruction: buildSignupInstruction(personaLike, templates),
     maxSteps: deps.maxSteps ?? SIGNUP_MAX_STEPS,
     variables: {
       password: { value: password, description: "The password for the new LinkedIn account" },
     },
     output: z.object({
       email: z.string().describe("The email address used for the account ('' if none was created)"),
-      success: z.boolean().describe("Whether onboarding finished and the normal LinkedIn feed is visible"),
+      success: z
+        .boolean()
+        .describe(
+          "True when logged in and the LinkedIn home feed is visible (post stream, logged-in nav) — even if guided onboarding was not fully completed. False if still on signup, login, verification, captcha, or checkpoint.",
+        ),
       notes: z.string().describe("Short summary of what happened, including any blockers"),
     }),
   });
@@ -509,12 +517,14 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
     });
   }
 
+  const feedTemplates = await loadAgentInstructions(convex, workerKey);
   const feedOk = await runAgentFeedWarmup(
     stagehand,
     emit,
     personaLike,
     actionId,
     feedWarmupMaxSteps,
+    feedTemplates,
   );
   if (!feedOk) {
     await emit(
@@ -560,6 +570,8 @@ export async function runLogin(deps: AccountFlowDeps): Promise<boolean> {
     );
     return false;
   }
+
+  const templates = await loadAgentInstructions(convex, workerKey);
 
   let emailCall = 0;
   let captchaCall = 0;
@@ -610,7 +622,7 @@ export async function runLogin(deps: AccountFlowDeps): Promise<boolean> {
 
   const agent = stagehand.agent({ mode: "hybrid", tools });
   const result = await agent.execute({
-    instruction: buildLoginInstruction(),
+    instruction: buildLoginInstruction(templates),
     maxSteps: deps.maxSteps ?? LOGIN_MAX_STEPS,
     variables: {
       email: { value: creds.email, description: "The LinkedIn account email" },

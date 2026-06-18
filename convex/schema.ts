@@ -196,6 +196,13 @@ export default defineSchema({
     maxSessions: v.number(),
   }),
 
+  agentInstructions: defineTable({
+    key: v.string(),
+    template: v.string(),
+    updatedAt: v.number(),
+    notes: v.optional(v.string()),
+  }).index("by_key", ["key"]),
+
   campaigns: defineTable({
     name: v.string(),
     status: campaignStatus,

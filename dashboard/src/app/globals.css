@@ -50,6 +50,10 @@
   --color-on-primary: var(--on-primary);
   --color-primary-active: var(--primary-active);
   --color-semantic-error: var(--semantic-error);
+  --color-status-active: var(--status-active);
+  --color-status-restricted: var(--status-restricted);
+  --color-status-idle: var(--status-idle);
+  --color-status-border: var(--status-border);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -74,6 +78,10 @@
   --primary-active: #0c0a09;
   --on-primary: #ffffff;
   --semantic-error: #dc2626;
+  --status-active: #4ade80;
+  --status-restricted: #111827;
+  --status-idle: #9ca3af;
+  --status-border: #e5e7eb;
   --background: var(--canvas);
   --foreground: var(--ink);
   --card: var(--surface-card);

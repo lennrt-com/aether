@@ -11,7 +11,7 @@ export type AgentModelAlias = keyof typeof AGENT_MODEL_ALIASES;
 
 export const AGENT_MODEL_CHOICES = Object.keys(AGENT_MODEL_ALIASES) as AgentModelAlias[];
 
-export const DEFAULT_AGENT_MODEL = AGENT_MODEL_ALIASES["claude-sonnet-4-6"];
+export const DEFAULT_AGENT_MODEL = AGENT_MODEL_ALIASES["gemini-3-flash-preview"];
 
 /** Resolve a CLI alias, full provider/model string, or AGENT_MODEL env fallback. */
 export function resolveAgentModel(input?: string | null): string {

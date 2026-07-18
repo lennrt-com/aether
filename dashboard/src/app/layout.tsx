@@ -12,8 +12,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "blessGTM Admin Dashboard",
-  description: "Read-only pool health, ban rates, and survival KPIs",
+  title: "Aether Admin Dashboard",
+  description: "Agent jobs, sessions, and fleet status",
 };
 
 export default async function RootLayout({

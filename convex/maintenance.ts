@@ -56,12 +56,6 @@ async function deleteProfileFully(
     await ctx.db.delete(snap._id);
   }
 
-  const incidents = await ctx.db
-    .query("incidents")
-    .withIndex("by_profile", (q) => q.eq("profileId", profileId))
-    .collect();
-  for (const row of incidents) await ctx.db.delete(row._id);
-
   const fpObs = await ctx.db
     .query("fingerprintObservations")
     .withIndex("by_profile", (q) => q.eq("profileId", profileId))
@@ -113,12 +107,6 @@ async function trimProfileHistory(
     }
     await ctx.db.delete(snap._id);
   }
-
-  const incidents = await ctx.db
-    .query("incidents")
-    .withIndex("by_profile", (q) => q.eq("profileId", profileId))
-    .collect();
-  for (const row of incidents) await ctx.db.delete(row._id);
 
   const fpObs = await ctx.db
     .query("fingerprintObservations")
@@ -197,7 +185,20 @@ export const removeProfilesWithoutCredentials = mutation({
   },
 });
 
-/** Wipe moving DB state for dev resets. Preserves proxy pool, strategies, and accounts with credentials. */
+/** Dev helper: delete all profiles (+ children). Keeps proxyPool / workers / auth. */
+export const purgeAllProfiles = mutation({
+  args: { workerKey: v.string() },
+  handler: async (ctx, { workerKey }) => {
+    assertWorkerKey(workerKey);
+    const profiles = await ctx.db.query("profiles").collect();
+    for (const profile of profiles) {
+      await deleteProfileFully(ctx, profile._id);
+    }
+    return { profilesDeleted: profiles.length };
+  },
+});
+
+/** Wipe moving DB state for dev resets. Preserves proxy pool and accounts with credentials. */
 export const reset = mutation({
   args: { workerKey: v.string() },
   handler: async (ctx, { workerKey }) => {

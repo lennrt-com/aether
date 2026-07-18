@@ -57,7 +57,7 @@ export const SNAPSHOT_MUST_KEEP = [
 /** Convex blob Content-Type for profile archives (gzip-compressed tar). */
 export const SNAPSHOT_BLOB_CONTENT_TYPE = "application/gzip";
 
-export const SNAPSHOT_MARKER_FILE = ".blessgtm-snapshot";
+export const SNAPSHOT_MARKER_FILE = ".aether-snapshot";
 
 // Launch config window sizes (Phase 5) — picked by profileId hash.
 // Capped at 1080p so local stealth testing stays manageable on big monitors.

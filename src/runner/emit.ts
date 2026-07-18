@@ -33,10 +33,11 @@ export function createEmitter(cfg: EmitterConfig): Emit {
       channel: cfg.channel,
       data,
       ctx: {
-        ...cfg.ctx,
-        strategyVersionId: cfg.ctx.strategyVersionId as
-          | Id<"strategyVersions">
-          | undefined,
+        egressIp: cfg.ctx.egressIp,
+        launchConfigHash: cfg.ctx.launchConfigHash,
+        personaVersion: cfg.ctx.personaVersion,
+        model: cfg.ctx.model,
+        stagehandVersion: cfg.ctx.stagehandVersion,
       },
     });
 }

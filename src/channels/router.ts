@@ -6,6 +6,7 @@ export const CHANNEL: Record<TaskType, "api" | "browser"> = {
   send_message: "api",
   send_invitation: "api",
   fetch_profile: "api",
+  agent: "browser",
   browse: "browser",
   signup: "browser",
   login: "browser",

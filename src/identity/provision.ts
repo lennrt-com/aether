@@ -113,7 +113,7 @@ export async function provisionProfile(
     await client.mutation(api.profiles.transition, {
       workerKey,
       profileId,
-      to: "warming",
+      to: "active",
       reason: "provisioned",
     });
   }

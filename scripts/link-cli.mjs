@@ -97,8 +97,8 @@ function installShim(binDir) {
   const tsxCli = path.join(projectRoot, "node_modules", "tsx", "dist", "cli.mjs");
 
   if (process.platform === "win32") {
-    const cmdPath = path.join(binDir, "bless.cmd");
-    const ps1Path = path.join(binDir, "bless.ps1");
+    const cmdPath = path.join(binDir, "aether.cmd");
+    const ps1Path = path.join(binDir, "aether.ps1");
     const cmdContent =
       `@echo off\r\ncd /d "${projectRoot}"\r\nnode "${tsxCli}" "${cliEntry}" %*\r\n`;
     const ps1Content =
@@ -109,7 +109,7 @@ function installShim(binDir) {
     return;
   }
 
-  const shimPath = path.join(binDir, "bless");
+  const shimPath = path.join(binDir, "aether");
   const shimContent = `#!/usr/bin/env sh\ncd "${projectRoot}" && exec node "${tsxCli}" "${cliEntry}" "$@"\n`;
   fs.writeFileSync(shimPath, shimContent, "utf8");
   try {
@@ -141,11 +141,11 @@ if (process.platform === "win32") {
   console.log(
     "$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')",
   );
-  console.log("\nThen run:  bless --help");
+  console.log("\nThen run:  aether --help");
   if (pathChanged) {
     console.log("(Or open a new terminal — PATH is already saved for future sessions.)");
   }
 }
 
-console.log("\nIn this repo without global PATH:  pnpm bless   or   .\\bless");
-console.log("Note: PowerShell never runs .\\bless.ps1 as bare `bless` from the project folder.");
+console.log("\nIn this repo without global PATH:  pnpm aether   or   .\\aether");
+console.log("Note: PowerShell never runs .\\aether.ps1 as bare `aether` from the project folder.");

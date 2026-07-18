@@ -1,0 +1,19 @@
+services:
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DISPLAY: ":99"
+      HEADLESS: "false"
+      PROFILES_DIR: /data/profiles
+    volumes:
+      - aether-profiles:/data/profiles
+    shm_size: "2gb"
+    # One browser session per worker process by default (scale replicas for concurrency)
+    deploy:
+      replicas: 1
+
+volumes:
+  aether-profiles:

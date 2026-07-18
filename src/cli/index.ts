@@ -1,5 +1,5 @@
-// bless — ops CLI for the LinkedIn multi-agent engine.
-//   pnpm cli <command>   (or `bless <command>` when linked via package bin)
+// aether — anti-detect AI browser agent CLI.
+//   pnpm aether <command>   (or `aether <command>` when linked via package bin)
 import "../shared/env.js";
 import { Command } from "commander";
 import { spawn } from "node:child_process";
@@ -9,21 +9,15 @@ import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 import { AGENT_MODEL_CHOICES, resolveAgentModel } from "../shared/agentModels.js";
 import { timezoneForGeo } from "../shared/geo.js";
 import { convex, table, fmtTs, acctStamp, resolveProxyForCli, type ProxyPoolEntry } from "./helpers.js";
-import { runCreateInteractive, runCreateParallelInteractive, runExperimentInteractive, runExperimentAll, runRemoveProfiles, runReset, showMainMenu } from "./interactive.js";
+import { runExperimentInteractive, runExperimentAll, runRemoveProfiles, runReset, showMainMenu } from "./interactive.js";
 import { resolveAgentModelForStartup, applyAgentModelEnv } from "./agentModel.js";
-import {
-  runCampaign,
-  listCampaigns,
-  showCampaignStatus,
-  setCampaignStatus,
-  type CampaignRunOptions,
-} from "../campaign/main.js";
+import { runJobCli, runJobInteractive } from "./runJob.js";
 
 const program = new Command();
 program
-  .name("bless")
+  .name("aether")
   .description(
-    "Ops CLI for blessGTM — interactive account creation (step 1) and fleet worker (step 2)",
+    "Aether — anti-detect AI browser agent. Run with no args for the interactive menu.",
   );
 
 function runScript(script: string, args: string[]): Promise<number> {
@@ -41,7 +35,73 @@ function runScript(script: string, args: string[]): Promise<number> {
 }
 
 const AGENT_MODEL_OPTION_DESC =
-  `agent LLM (${AGENT_MODEL_CHOICES.join(" | ")}, default: claude-sonnet-4-6)`;
+  `agent LLM (${AGENT_MODEL_CHOICES.join(" | ")}, default: gemini-3-flash-preview)`;
+
+// ----------------------------------------------------------------------- run
+program
+  .command("run")
+  .description(
+    "submit an agent job (interactive wizard if flags omitted; full flags still work for scripts)",
+  )
+  .option("--start-url <url>", "page to open before the agent acts")
+  .option("--instructions <text>", "goal / prompt for the agent")
+  .option("--webhook-url <url>", "webhook URL for job completion callback")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC)
+  .option("--max-steps <n>", "agent step budget")
+  .option("--proxy-server <hostPort>")
+  .option("--proxy-user <user>")
+  .option("--proxy-pass <pass>")
+  .option("--login-user <username>", "optional login username/email")
+  .option("--login-pass <password>", "optional login password")
+  .option("--secret-refs <json>", 'Vaultwarden refs JSON, e.g. {"username":"bw:Item/user","password":"bw:Item/pass"}')
+  .option("--mcp-servers <list>", "comma-separated MCP connection names")
+  .option("--webhook-secret <secret>", "HMAC secret for webhook signature")
+  .option("--tools <list>", "comma-separated: captcha,email,phone")
+  .option("--metadata <json>", "opaque metadata echoed in webhook payload")
+  .option("--poll", "poll job status until terminal state")
+  .action(async (opts) => {
+    const hasRequired = Boolean(opts.startUrl && opts.instructions && opts.webhookUrl);
+    if (!hasRequired) {
+      process.exitCode = await runJobInteractive({
+        startUrl: opts.startUrl,
+        instructions: opts.instructions,
+        webhookUrl: opts.webhookUrl,
+        model: opts.model,
+        maxSteps: opts.maxSteps ? Number(opts.maxSteps) : undefined,
+        proxyServer: opts.proxyServer,
+        proxyUser: opts.proxyUser,
+        proxyPass: opts.proxyPass,
+        loginUser: opts.loginUser,
+        loginPass: opts.loginPass,
+        secretRefs: opts.secretRefs,
+        mcpServers: opts.mcpServers,
+        webhookSecret: opts.webhookSecret,
+        tools: opts.tools,
+        metadata: opts.metadata,
+        poll: opts.poll,
+      });
+      return;
+    }
+
+    process.exitCode = await runJobCli({
+      startUrl: opts.startUrl,
+      instructions: opts.instructions,
+      webhookUrl: opts.webhookUrl,
+      model: opts.model,
+      maxSteps: opts.maxSteps ? Number(opts.maxSteps) : undefined,
+      proxyServer: opts.proxyServer,
+      proxyUser: opts.proxyUser,
+      proxyPass: opts.proxyPass,
+      loginUser: opts.loginUser,
+      loginPass: opts.loginPass,
+      secretRefs: opts.secretRefs,
+      mcpServers: opts.mcpServers,
+      webhookSecret: opts.webhookSecret,
+      tools: opts.tools,
+      metadata: opts.metadata,
+      poll: opts.poll ?? false,
+    });
+  });
 
 // ---------------------------------------------------------------- provision
 program
@@ -73,88 +133,6 @@ program
     if (opts.location) args.push("--location", opts.location);
     if (opts.stayProvisioning) args.push("--stay-provisioning");
     process.exitCode = await runScript("scripts/provision-profile.ts", args);
-  });
-
-// ------------------------------------------------------------------- create
-program
-  .command("create")
-  .description(
-    "interactive: provision identity + run LinkedIn signup in foreground (no worker)",
-  )
-  .option("--name <name>", "profile label (default: acct-<timestamp>)")
-  .option("--geo <geo>", "persona/proxy geo")
-  .option("--tz <timezone>", "IANA timezone")
-  .option("--role <role>", "persona role archetype", "experienced professional")
-  .option("--proxy-pool-id <id>", "proxy pool entry id")
-  .option("--proxy-server <hostPort>", "proxy server (bypasses pool)")
-  .option("--proxy-user <user>")
-  .option("--proxy-pass <pass>")
-  .option("--no-proxy", "launch without a proxy (direct connection)")
-  .option("--persona-prompt <text>", "optional persona creative prompt")
-  .option("--persona-model <alias>", "persona LLM model")
-  .option("--location <city>", "LinkedIn location override, e.g. Frankfurt, Hesse, Germany")
-  .option("--max-steps <n>", "signup agent step budget")
-  .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
-  .action(async (opts) => {
-    process.exitCode = await runCreateInteractive({
-      name: opts.name,
-      geo: opts.geo,
-      tz: opts.tz,
-      role: opts.role,
-      proxyPoolId: opts.proxyPoolId,
-      noProxy: opts.proxy === false,
-      proxyServer: opts.proxyServer,
-      proxyUser: opts.proxyUser,
-      proxyPass: opts.proxyPass,
-      personaPrompt: opts.personaPrompt,
-      personaModel: opts.personaModel,
-      location: opts.location,
-      maxSteps: opts.maxSteps,
-      skipPreflight: opts.skipPreflight,
-      model: opts.model,
-    });
-  });
-
-// ---------------------------------------------------------- create-parallel
-program
-  .command("create-parallel")
-  .description(
-    "interactive: provision N identities and run LinkedIn signups in parallel (no worker)",
-  )
-  .option("--count <n>", "how many accounts to create (default: prompt, max 10)")
-  .option("--geo <geo>", "persona/proxy geo (when not using per-proxy geo from pool)")
-  .option("--tz <timezone>", "IANA timezone")
-  .option("--role <role>", "persona role archetype", "experienced professional")
-  .option("--proxy-pool-id <id>", "proxy pool entry id")
-  .option("--proxy-server <hostPort>", "proxy server (bypasses pool)")
-  .option("--proxy-user <user>")
-  .option("--proxy-pass <pass>")
-  .option("--no-proxy", "launch without a proxy (direct connection)")
-  .option("--persona-prompt <text>", "optional persona creative prompt")
-  .option("--persona-model <alias>", "persona LLM model")
-  .option("--location <city>", "LinkedIn location override")
-  .option("--max-steps <n>", "signup agent step budget")
-  .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
-  .action(async (opts) => {
-    process.exitCode = await runCreateParallelInteractive({
-      count: opts.count ? Number(opts.count) : undefined,
-      geo: opts.geo,
-      tz: opts.tz,
-      role: opts.role,
-      proxyPoolId: opts.proxyPoolId,
-      noProxy: opts.proxy === false,
-      proxyServer: opts.proxyServer,
-      proxyUser: opts.proxyUser,
-      proxyPass: opts.proxyPass,
-      personaPrompt: opts.personaPrompt,
-      personaModel: opts.personaModel,
-      location: opts.location,
-      maxSteps: opts.maxSteps,
-      skipPreflight: opts.skipPreflight,
-      model: opts.model,
-    });
   });
 
 // --------------------------------------------------------------- experiment
@@ -295,6 +273,33 @@ proxyCmd
     console.log(`removed proxy "${res.label}"`);
   });
 
+// ----------------------------------------------------------------------- mcp
+const mcpCmd = program.command("mcp").description("manage MCP server connections for agent jobs");
+
+mcpCmd
+  .command("list")
+  .description("list registered MCP connections")
+  .action(async () => {
+    const { runMcpList } = await import("./mcpConnections.js");
+    process.exitCode = await runMcpList();
+  });
+
+mcpCmd
+  .command("add")
+  .description("add or update an MCP connection (interactive)")
+  .action(async () => {
+    const { runMcpAddInteractive } = await import("./mcpConnections.js");
+    process.exitCode = await runMcpAddInteractive();
+  });
+
+mcpCmd
+  .command("remove")
+  .description("remove an MCP connection (interactive)")
+  .action(async () => {
+    const { runMcpRemoveInteractive } = await import("./mcpConnections.js");
+    process.exitCode = await runMcpRemoveInteractive();
+  });
+
 // ------------------------------------------------------------------- remove
 program
   .command("remove [profileIds...]")
@@ -428,7 +433,7 @@ program
   .option("--url <url>", "start URL")
   .option("--instruction <text>", "override the agent instruction")
   .option("--max-steps <n>", "agent step budget (default: 15)")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
+  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "gemini-3-flash-preview")
   .action(async (profileIdArg, opts) => {
     const { client, workerKey } = convex();
     let profileId = profileIdArg as Id<"profiles"> | undefined;
@@ -477,7 +482,7 @@ program
     if (opts.url) args.push("--url", opts.url);
     if (opts.instruction) args.push("--instruction", opts.instruction);
     if (opts.maxSteps) args.push("--max-steps", String(opts.maxSteps));
-    args.push("--model", opts.model ?? "claude-sonnet-4-6");
+    args.push("--model", opts.model ?? "gemini-3-flash-preview");
 
     process.exitCode = await new Promise<number>((resolve) => {
       const child = spawn("node", args, {
@@ -501,7 +506,7 @@ function normalizeStealthTestUrl(raw: string): string {
 
 program
   .command("stealthtest <url> [profileId]")
-  .description("open a URL in the stealth-hardened browser (same setup as LinkedIn signup)")
+  .description("open a URL in the stealth-hardened browser (same setup as agent sessions)")
   .option("--create", "provision a fresh profile first (default when profileId is omitted)")
   .option("--name <name>", "profile label when creating (default: stealth-<timestamp>)")
   .option("--geo <geo>", "geo when creating", process.env.DEFAULT_GEO ?? "DE")
@@ -668,7 +673,7 @@ program
     });
   });
 
-// -------------------------------------------------------- account lifecycle
+// -------------------------------------------------------- task enqueue helper
 async function enqueueTask(
   profileId: string,
   type: string,
@@ -685,46 +690,8 @@ async function enqueueTask(
 }
 
 program
-  .command("signup <profileId>")
-  .description("enqueue a LinkedIn signup task (worker picks it up)")
-  .option("--max-steps <n>")
-  .option("--skip-preflight")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
-  .action(async (profileId, opts) => {
-    await enqueueTask(profileId, "signup", {
-      ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
-      ...(opts.skipPreflight ? { skipPreflight: true } : {}),
-      model: resolveAgentModel(opts.model),
-    });
-  });
-
-program
-  .command("login <profileId>")
-  .description("enqueue a LinkedIn login task (uses stored credentials)")
-  .option("--max-steps <n>")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
-  .action(async (profileId, opts) => {
-    await enqueueTask(profileId, "login", {
-      ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
-      model: resolveAgentModel(opts.model),
-    });
-  });
-
-program
-  .command("complete-onboarding <profileId>")
-  .description("enqueue a provisioning rescue task (verify email, capture profile URL, promote to warming)")
-  .option("--max-steps <n>")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC, "claude-sonnet-4-6")
-  .action(async (profileId, opts) => {
-    await enqueueTask(profileId, "complete_onboarding", {
-      ...(opts.maxSteps ? { maxSteps: Number(opts.maxSteps) } : {}),
-      model: resolveAgentModel(opts.model),
-    });
-  });
-
-program
   .command("enqueue <profileId> <type>")
-  .description("enqueue an arbitrary task (browse, warmup_feed, engage_post, ...)")
+  .description("enqueue an arbitrary task (agent, browse, experiment, ...)")
   .option("--payload <json>", "task payload as JSON", "{}")
   .option("--priority <n>", "task priority", "0")
   .action(async (profileId, type, opts) => {
@@ -739,93 +706,27 @@ program
     console.log(`enqueued ${type} task: ${taskId}`);
   });
 
-// ------------------------------------------------------------------ campaign
-const campaignCmd = program
-  .command("campaign")
-  .description("sequential account-creation campaigns (one browser at a time, rate-limited)");
-
-campaignCmd
-  .command("run")
-  .description("start or resume a campaign that provisions + signs up accounts sequentially")
-  .option("--id <campaignId>", "resume an existing campaign")
-  .option("--name <name>", "campaign name (new campaigns only)")
-  .option("--target <n>", "target healthy (non-restricted) account count")
-  .option("--per-hour <n>", "max signup starts per hour (even spacing)")
-  .option("--geo <geo>", "persona/proxy geo")
-  .option("--tz <timezone>", "IANA timezone")
-  .option("--role <role>", "persona role archetype", "experienced professional")
-  .option("--proxy-pool-id <id>", "proxy pool entry id (single strategy)")
-  .option("--proxy-server <hostPort>", "proxy server (bypasses pool)")
-  .option("--proxy-user <user>")
-  .option("--proxy-pass <pass>")
-  .option("--no-proxy", "launch without a proxy")
-  .option("--proxy-strategy <strategy>", "rotate_pool | single", "rotate_pool")
-  .option("--persona-prompt <text>")
-  .option("--persona-model <alias>")
-  .option("--location <city>")
-  .option("--skip-preflight", "skip proxy + fingerprint checks; go to LinkedIn signup directly")
-  .option("--skip-proxy-check", "skip only the proxy checks; fingerprint checks still run")
-  .option("--model <alias>", AGENT_MODEL_OPTION_DESC)
-  .option("--probe-interval <minutes>", "extra restriction probe interval for campaign members (0=off)")
+// --------------------------------------------------------------------- jobs
+program
+  .command("jobs")
+  .description("list recent agent jobs (requires dashboard auth via Convex — use API for remote)")
+  .option("--limit <n>", "max jobs", "20")
   .action(async (opts) => {
-    const runOpts: CampaignRunOptions = {
-      id: opts.id,
-      name: opts.name,
-      target: opts.target ? Number(opts.target) : undefined,
-      perHour: opts.perHour ? Number(opts.perHour) : undefined,
-      geo: opts.geo,
-      tz: opts.tz,
-      role: opts.role,
-      proxyPoolId: opts.proxyPoolId,
-      noProxy: opts.proxy === false,
-      proxyServer: opts.proxyServer,
-      proxyUser: opts.proxyUser,
-      proxyPass: opts.proxyPass,
-      proxyStrategy: opts.proxyStrategy as "rotate_pool" | "single" | undefined,
-      personaPrompt: opts.personaPrompt,
-      personaModel: opts.personaModel,
-      location: opts.location,
-      skipPreflight: opts.skipPreflight,
-      skipProxyCheck: opts.skipProxyCheck,
-      model: opts.model,
-      probeIntervalMs: opts.probeInterval ? Number(opts.probeInterval) * 60_000 : undefined,
-    };
-    process.exitCode = await runCampaign(runOpts);
-  });
-
-campaignCmd
-  .command("list")
-  .description("list all campaigns with progress")
-  .action(async () => {
-    await listCampaigns();
-  });
-
-campaignCmd
-  .command("status <campaignId>")
-  .description("show campaign details and member profiles")
-  .action(async (campaignId) => {
-    process.exitCode = await showCampaignStatus(campaignId);
-  });
-
-campaignCmd
-  .command("pause <campaignId>")
-  .description("pause a running campaign")
-  .action(async (campaignId) => {
-    process.exitCode = await setCampaignStatus(campaignId, "paused");
-  });
-
-campaignCmd
-  .command("resume <campaignId>")
-  .description("resume a paused campaign (use campaign run --id to attach a runner)")
-  .action(async (campaignId) => {
-    process.exitCode = await setCampaignStatus(campaignId, "running");
-  });
-
-campaignCmd
-  .command("cancel <campaignId>")
-  .description("cancel a campaign (runner exits on next check)")
-  .action(async (campaignId) => {
-    process.exitCode = await setCampaignStatus(campaignId, "cancelled");
+    const { client, workerKey } = convex();
+    const jobs = await client.query(api.jobs.listRecentWorker, {
+      workerKey,
+      limit: Number(opts.limit),
+    });
+    table(
+      jobs.map((j) => ({
+        id: j.id,
+        status: j.status,
+        startUrl: String(j.startUrl ?? "").slice(0, 48),
+        model: j.model ?? "-",
+        webhook: j.webhookStatus ?? "-",
+        error: j.error ?? "-",
+      })),
+    );
   });
 
 // ------------------------------------------------------------------- worker
@@ -846,28 +747,20 @@ program
   .alias("ps")
   .description("list profiles with status and risk score")
   .option("--status <status>", "filter by profile status")
-  .option("--restricted", "filter to restricted profiles only")
   .action(async (opts) => {
     const { client } = convex();
     const profiles: Doc<"profiles">[] = await client.query(api.profiles.list, {
       status: opts.status,
-      restricted: opts.restricted ? true : undefined,
     });
     table(
       profiles.map((p) => ({
         id: p._id,
         name: p.name,
         status: p.status,
-        restricted: p.isRestricted ? "yes" : "no",
-        atPhase: p.restrictedAtPhase ?? "-",
-        restrictedAt: p.restrictedAt ? fmtTs(p.restrictedAt) : "-",
-        source: p.restrictionSource ?? "-",
+        ephemeral: p.ephemeral ? "yes" : "no",
         maint: p.maintained === false ? "no" : "yes",
         risk: p.riskScore.toFixed(1),
-        warmupDays: (p.warmupAgeDays ?? (p as { accountAgeDays?: number }).accountAgeDays ?? 0).toFixed(1),
-        linkedinDays: (p.linkedinAgeDays ?? 0).toFixed(1),
-        linkedin: p.linkedInProfileUrl ?? "-",
-        unipile: p.unipileAccountId ?? "-",
+        busy: p.activeSessionId ? "yes" : "no",
       })),
     );
   });
@@ -937,191 +830,10 @@ program
     console.log("\nprofiles:");
     table([...byStatus.entries()].map(([status, count]) => ({ status, count })));
 
-    const benchmark = await client.query(api.profiles.restrictionBenchmark, {});
-    console.log("\nrestrictions:");
-    table([
-      { total: benchmark.total, ...benchmark.byPhase },
-    ]);
     const busy = profiles.filter((p) => p.activeSessionId !== undefined);
     if (busy.length > 0) {
       console.log(`\nactive sessions: ${busy.map((p) => `${p.name} (${p._id})`).join(", ")}`);
     }
-  });
-
-// ----------------------------------------------------------------- strategy
-const strategy = program.command("strategy").description("show or approve strategy versions");
-
-strategy
-  .command("list", { isDefault: true })
-  .description("list strategy versions")
-  .action(async () => {
-    const { client } = convex();
-    const versions: Doc<"strategyVersions">[] = await client.query(api.policies.list, {});
-    table(
-      versions.map((s) => ({
-        id: s._id,
-        version: s.version,
-        cohort: s.cohortTag,
-        status: s.status,
-        approvedBy: s.approvedBy ?? "-",
-        notes: (s.notes ?? "").slice(0, 40),
-      })),
-    );
-  });
-
-strategy
-  .command("approve <strategyVersionId>")
-  .description("approve a draft strategy version")
-  .option("--by <name>", "approver name", process.env.USERNAME ?? "cli")
-  .action(async (strategyVersionId, opts) => {
-    const { client, workerKey } = convex();
-    await client.mutation(api.policies.approve, {
-      workerKey,
-      strategyVersionId: strategyVersionId as Id<"strategyVersions">,
-      approvedBy: opts.by,
-    });
-    console.log(`approved strategy ${strategyVersionId} (by ${opts.by})`);
-  });
-
-// ------------------------------------------------------------------ age
-const age = program
-  .command("age")
-  .description("warmupAgeDays (fleet ramp) and linkedinAgeDays (platform age)");
-
-age
-  .command("warmup")
-  .description("run one warmup-age tick now (+1/24 day per eligible profile)")
-  .action(async () => {
-    const { client, workerKey } = convex();
-    const result = await client.mutation(api.age.runWarmup, { workerKey });
-    console.log(`warmup age bump: ${JSON.stringify(result)}`);
-  });
-
-age
-  .command("linkedin")
-  .description("recompute linkedinAgeDays from linkedinCreatedAt for all live profiles")
-  .action(async () => {
-    const { client, workerKey } = convex();
-    const result = await client.mutation(api.age.runLinkedIn, { workerKey });
-    console.log(`linkedin age update: ${JSON.stringify(result)}`);
-  });
-
-age
-  .command("backfill")
-  .description("migrate legacy accountAgeDays and infer linkedinCreatedAt from events")
-  .action(async () => {
-    const { client, workerKey } = convex();
-    const result = await client.mutation(api.age.backfill, { workerKey });
-    console.log(`age backfill: ${JSON.stringify(result)}`);
-  });
-
-// ------------------------------------------------------------------ monitor
-const monitor = program.command("monitor").description("profile health monitoring (independent of worker)");
-
-monitor
-  .command("restrictions [profileId]")
-  .description("run restriction checks now via Unipile probe account (Convex action, no worker)")
-  .action(async (profileIdArg?: string) => {
-    const { client, workerKey } = convex();
-    const profileId = profileIdArg as Id<"profiles"> | undefined;
-    const result = await client.mutation(api.monitoring.run, { workerKey, profileId });
-    if (profileId) {
-      console.log(`scheduled restriction check for ${profileId}: ${JSON.stringify(result)}`);
-    } else {
-      console.log(`scheduled restriction check: ${JSON.stringify(result)}`);
-    }
-    console.log("runs in Convex — check events with: bless events <profileId>");
-  });
-
-monitor
-  .command("probe [profileId]")
-  .description("dry-run Unipile probe (writes NO events) to inspect raw restriction signals")
-  .option("--all", "probe all monitored profiles (default: only the given profileId)")
-  .option("--include-restricted", "also probe already-restricted profiles")
-  .option("--raw", "print the full raw Unipile response body for each profile")
-  .action(async (profileIdArg: string | undefined, opts) => {
-    const { client, workerKey } = convex();
-    const profileId = profileIdArg as Id<"profiles"> | undefined;
-    if (!profileId && !opts.all) {
-      throw new Error("provide a profileId, or pass --all to probe the whole fleet");
-    }
-    const { count, results } = await client.action(api.monitoring.probeDiagnostics, {
-      workerKey,
-      profileId,
-      includeRestricted: opts.includeRestricted ?? Boolean(opts.all && opts.includeRestricted),
-    });
-    console.log(`probed ${count} profile(s) — no events written\n`);
-    table(
-      results.map((r) => ({
-        name: r.name,
-        status: r.status,
-        db_restricted: r.isRestricted ? "yes" : "",
-        live: r.outcome,
-        http: r.httpStatus ?? "",
-        errorType: r.errorType ?? "",
-        flag: r.wouldFlagRestricted ? "RESTRICT" : "",
-        mismatch: r.mismatch ? "!!" : "",
-        detail: r.detail,
-      })),
-    );
-    const mismatches = results.filter((r) => r.mismatch);
-    if (mismatches.length > 0) {
-      console.log(
-        `\n${mismatches.length} mismatch(es) — DB restriction state disagrees with the live probe:`,
-      );
-      for (const m of mismatches) {
-        console.log(`  ${m.name} (${m.profileId}) — db_restricted=${m.isRestricted} live=${m.outcome} http=${m.httpStatus} type=${m.errorType ?? "-"}`);
-      }
-    }
-    if (opts.raw) {
-      console.log("\n--- raw responses ---");
-      for (const r of results) {
-        console.log(`\n# ${r.name} (${r.profileId})`);
-        console.log(JSON.stringify(r.raw, null, 2));
-      }
-    }
-  });
-
-monitor
-  .command("benchmark")
-  .description("restriction counts grouped by phase at detection time")
-  .action(async () => {
-    const { client } = convex();
-    const benchmark = await client.query(api.profiles.restrictionBenchmark, {});
-    console.log(`total restricted: ${benchmark.total}`);
-    table(
-      Object.entries(benchmark.byPhase).map(([phase, count]) => ({ phase, count })),
-    );
-  });
-
-monitor
-  .command("backfill-restrictions")
-  .description("backfill isRestricted columns for legacy restricted profiles")
-  .action(async () => {
-    const { client, workerKey } = convex();
-    const result = await client.mutation(api.profiles.backfillRestrictions, { workerKey });
-    console.log(`backfilled ${result.patched} profile(s)`);
-  });
-
-// ------------------------------------------------------------------ unipile
-const unipile = program.command("unipile").description("Unipile account/webhook management");
-
-unipile
-  .command("setup")
-  .description("list connected Unipile accounts + register the webhook endpoint")
-  .action(async () => {
-    process.exitCode = await runScript("scripts/setup-unipile-webhook.ts", []);
-  });
-
-unipile
-  .command("link <profileId> <accountId>")
-  .description("link a profile to a connected Unipile account")
-  .action(async (profileId, accountId) => {
-    process.exitCode = await runScript("scripts/setup-unipile-webhook.ts", [
-      "--link",
-      profileId,
-      accountId,
-    ]);
   });
 
 const args = process.argv.slice(2);

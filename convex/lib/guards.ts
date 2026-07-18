@@ -1,4 +1,4 @@
-// Worker auth + profile state machine guards (executionplan.md Appendix C).
+// Worker auth + simple profile status transitions for Aether.
 
 export function assertWorkerKey(key: string): void {
   const expected = process.env.WORKER_KEY;
@@ -6,19 +6,12 @@ export function assertWorkerKey(key: string): void {
   if (key !== expected) throw new Error("invalid worker key");
 }
 
-export type ProfileStatus =
-  | "provisioning" | "warming" | "active" | "cooldown"
-  | "warning" | "restricted" | "recovering" | "retired";
+export type ProfileStatus = "provisioning" | "active" | "disabled";
 
 export const ALLOWED_TRANSITIONS: Record<ProfileStatus, ProfileStatus[]> = {
-  provisioning: ["warming", "restricted"],
-  warming: ["active", "warning", "restricted", "retired"],
-  active: ["cooldown", "warning", "restricted", "retired"],
-  cooldown: ["active", "warning", "restricted"],
-  warning: ["active", "restricted", "retired"],
-  restricted: ["recovering", "retired"],
-  recovering: ["warming", "restricted", "retired"],
-  retired: [],
+  provisioning: ["active", "disabled"],
+  active: ["disabled", "provisioning"],
+  disabled: ["active", "provisioning"],
 };
 
 export function assertTransition(from: ProfileStatus, to: ProfileStatus): void {
@@ -27,9 +20,6 @@ export function assertTransition(from: ProfileStatus, to: ProfileStatus): void {
   }
 }
 
-export function isProfileRestricted(profile: {
-  isRestricted?: boolean;
-  status?: string;
-}): boolean {
-  return profile.isRestricted === true || profile.status === "restricted";
+export function isProfileDisabled(profile: { status?: string; maintained?: boolean }): boolean {
+  return profile.status === "disabled" || profile.maintained === false;
 }

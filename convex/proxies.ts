@@ -16,7 +16,7 @@ export const create = mutation({
     assertWorkerKey(args.workerKey);
     return await ctx.db.insert("proxyBindings", {
       profileId: args.profileId,
-      provider: "coronium",
+      provider: "http",
       server: args.server,
       username: args.username,
       password: args.password,

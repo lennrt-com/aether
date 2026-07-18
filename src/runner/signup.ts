@@ -148,7 +148,7 @@ async function persistCredentials(
     await convex.mutation(api.profiles.transition, {
       workerKey,
       profileId: profile._id,
-      to: "warming",
+      to: "active",
       reason: "signup completed",
     });
   }
@@ -513,7 +513,7 @@ export async function runSignup(deps: AccountFlowDeps): Promise<boolean> {
     await convex.mutation(api.profiles.transition, {
       workerKey,
       profileId: profile._id,
-      to: "warming",
+      to: "active",
       reason: linkedInProfileUrl ? "signup onboarding completed" : "signup completed (profile URL pending)",
     });
   }
@@ -648,7 +648,7 @@ export async function runLogin(
     await convex.mutation(api.profiles.transition, {
       workerKey,
       profileId: profile._id,
-      to: "warming",
+      to: "active",
       reason: "login succeeded",
     });
   }

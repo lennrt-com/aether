@@ -38,7 +38,7 @@ function pruneProfileDir(profileDir: string): void {
 // Whitelist archive: tar ONLY the identity paths (architecture.md §5.4) + gzip.
 // Pruning still runs so the local working copy stays small between sessions.
 async function buildArchive(profileDir: string, keepPaths: string[]): Promise<Buffer> {
-  const tmpFile = path.join(os.tmpdir(), `blessgtm-snap-${process.pid}-${Date.now()}.tgz`);
+  const tmpFile = path.join(os.tmpdir(), `aether-snap-${process.pid}-${Date.now()}.tgz`);
   try {
     await tar.create(
       {

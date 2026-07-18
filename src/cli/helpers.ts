@@ -6,7 +6,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api.js";
 import type { Doc, Id } from "../../convex/_generated/dataModel.js";
 
-/** Repo root (blessGTM), from any file under src/cli/. */
+/** Repo root (Aether), from any file under src/cli/. */
 export function projectRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 }
@@ -95,9 +95,12 @@ export function spawnTsxScriptTagged(
 }
 
 /** Spawn the CLI entry with local tsx (cwd = repo root). */
-export function spawnBlessCli(args: string[]): Promise<number> {
+export function spawnAetherCli(args: string[]): Promise<number> {
   return spawnTsxScript("src/cli/index.ts", args);
 }
+
+/** @deprecated use spawnAetherCli */
+export const spawnBlessCli = spawnAetherCli;
 
 export type ProxyPoolEntry = Doc<"proxyPool">;
 
@@ -155,7 +158,7 @@ export async function resolveProxyForCli(
       poolEntry = pool.find((p) => p._id === choice);
     }
   } else {
-    console.log("no proxies in pool — add one with `bless proxy add` or pass --proxy-server");
+    console.log("no proxies in pool — add one with `aether proxy add` or pass --proxy-server");
     useProxy = false;
   }
 

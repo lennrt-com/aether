@@ -26,7 +26,7 @@ import { createAgent } from "./agentDefaults.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
-import { runSignupSession, type SessionBundle } from "./sessionFlow.js";
+import { runSignupSession, runAgentSession, parseAgentPayloadFromTask, type SessionBundle } from "./sessionFlow.js";
 
 export interface RunnerBundle extends SessionBundle {}
 
@@ -62,7 +62,6 @@ const emit = createEmitter({
   ctx: {
     launchConfigHash: bundle.launchConfig?.hash,
     personaVersion: bundle.persona?.version,
-    strategyVersionId: bundle.strategyVersionId ?? undefined,
     model: agentModel,
   },
 });
@@ -77,6 +76,18 @@ if (task.type === "signup") {
     maxSteps: taskPayload.maxSteps,
     skipPreflight: taskPayload.skipPreflight,
     model: taskPayload.model,
+  });
+  process.exit(result.exitCode);
+}
+
+if (task.type === "agent") {
+  const agentPayload = parseAgentPayloadFromTask(task.payload);
+  const result = await runAgentSession({
+    convex,
+    workerKey,
+    emit,
+    bundle,
+    payload: agentPayload,
   });
   process.exit(result.exitCode);
 }

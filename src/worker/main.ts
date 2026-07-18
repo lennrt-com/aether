@@ -57,7 +57,6 @@ async function runApiTask(bundle: ClaimBundle): Promise<void> {
     channel: "api",
     ctx: {
       personaVersion: bundle.persona?.version ?? undefined,
-      strategyVersionId: bundle.strategyVersionId ?? undefined,
     },
   });
   const actionId = randomUUID();
@@ -146,9 +145,9 @@ function runTask(bundle: ClaimBundle): Promise<void> {
           });
           console.log(`[worker] task ${task._id} done`);
         } else {
-          const error = result.error
-            ? String(result.error)
-            : `runner exited with code ${result.code}`;
+      const error = result.error
+        ? String(result.error)
+        : `runner exited with code ${result.code}`;
           await convex.mutation(api.tasks.fail, { workerKey: key, taskId: task._id, error });
           console.log(`[worker] task ${task._id} failed: ${error}`);
         }

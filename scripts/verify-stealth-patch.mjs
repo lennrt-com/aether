@@ -17,7 +17,7 @@ const require = createRequire(import.meta.url);
 const EXPECTED_VERSION = "3.5.0";
 // Unique comment the patch injects into understudy/context.js. Present only when
 // the patch applied; absent on a stock install.
-const PATCH_MARKER = "blessGTM Phase 1";
+const PATCH_MARKER = "Aether Phase 1";
 
 function fail(reason) {
   console.error("");

@@ -1,8 +1,31 @@
-# blessGTM — Multi-Agent LinkedIn Platform Architecture
+# Aether — Anti-Detect AI Browser Agent
 
-> Status: Design agreed (architecture brainstorm, June 2026). No implementation yet beyond the existing Stagehand prototype (`src/index.ts`, `src/proxy.ts`).
+> Async agent API + stealth Chrome workers. Submit `startUrl` + `instructions` + `webhookUrl`; workers run headed Chrome under Xvfb (Docker) with CDP stealth.
 
-A scalable, observable, self-improving platform for managing multiple professional LinkedIn profiles: profile lifecycle, engagement/warm-up workflows, and strong compliance/risk mitigation. The core value is deep tracking and logging of every action and state change, so the system can detect restrictions in real time and feed a self-learning loop that improves future behavior.
+A generic, observable browser-agent platform: anti-detect Chrome sessions, CapSolver captcha tools, optional email/phone tools, Convex control plane, and webhook callbacks on job completion.
+
+---
+
+## 1. Stack
+
+| Layer | Technology | Role |
+|---|---|---|
+| Control plane | **Convex** | Jobs queue, sessions, events, HTTP API |
+| Browser | **Stagehand** LOCAL + real Chrome/CDP | Stealth agent execution |
+| Workers | **Docker + Xvfb** on VPS | Headed Chrome in Linux containers |
+| Admin | **Next.js dashboard** on Railway | Jobs / sessions observability |
+
+---
+
+## Legacy note
+
+Older LinkedIn-specific flows (`signup`, campaigns, Unipile) remain in the codebase for reference but are no longer the product surface. Use the `agent` task type and `/v1/jobs` API instead.
+
+---
+
+## Original architecture (LinkedIn era — partial)
+
+The sections below describe the original blessGTM design. Core pieces (identity bundles, event log, worker queue, stealth session) still apply; LinkedIn lifecycle semantics do not.
 
 ---
 

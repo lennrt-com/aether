@@ -3,13 +3,8 @@
 
 export const PROFILE_STATUSES = [
   "provisioning",
-  "warming",
   "active",
-  "cooldown",
-  "warning",
-  "restricted",
-  "recovering",
-  "retired",
+  "disabled",
 ] as const;
 export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
 
@@ -23,6 +18,7 @@ export const TASK_STATUSES = [
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const TASK_TYPES = [
+  "agent",
   "browse",
   "signup",
   "login",
@@ -78,7 +74,6 @@ export interface EventCtx {
   egressIp?: string;
   launchConfigHash?: string;
   personaVersion?: number;
-  strategyVersionId?: string;
   model?: string;
   stagehandVersion?: string;
 }

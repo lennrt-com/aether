@@ -1,5 +1,5 @@
 @echo off
-REM Local bless CLI (Windows). Usage: bless.cmd reset --yes  OR  .\bless reset --yes
+REM Deprecated alias — use aether.cmd
 setlocal
 cd /d "%~dp0"
-node "%~dp0node_modules\tsx\dist\cli.mjs" "%~dp0src\cli\index.ts" %*
+call "%~dp0aether.cmd" %*

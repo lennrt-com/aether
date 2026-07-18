@@ -25,8 +25,8 @@ import {
 
 const navItems = [
   {
-    title: "Pool",
-    href: "/pool",
+    title: "Jobs",
+    href: "/jobs",
     icon: DashboardCircleIcon,
   },
   {
@@ -35,8 +35,8 @@ const navItems = [
     icon: Analytics01Icon,
   },
   {
-    title: "Accounts",
-    href: "/accounts",
+    title: "Sessions",
+    href: "/pool",
     icon: UserAccountIcon,
   },
 ] as const;
@@ -50,14 +50,14 @@ export function AppSidebar() {
       <SidebarHeader className="border-b border-hairline px-4 py-4">
         <div className="flex items-center gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary font-display text-sm font-semibold text-on-primary">
-            bG
+            Ae
           </span>
           <div className="min-w-0">
             <p className="text-[0.7rem] font-medium uppercase tracking-[0.12em] text-muted">
               Workspace
             </p>
             <p className="truncate font-medium tracking-tight text-ink">
-              blessGTM Admin
+              Aether Admin
             </p>
           </div>
         </div>

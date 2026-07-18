@@ -19,7 +19,7 @@ index 78b89c8ff29f0c914a311238fd49beccd0af95d3..29c086216a796ea730739bfb5c650f2b
          const corePreResumeOps = [
              queuePreResume("Page.enable"),
 -            queuePreResume("Runtime.enable"),
-+            // blessGTM Phase 1: do not enable Runtime at target attach — fingerprint.com
++            // Aether Phase 1: do not enable Runtime at target attach — fingerprint.com
 +            // collects developer_tools/bot signals when the JS agent loads.
              queuePreResume("Target.setAutoAttach", {
                  autoAttach: true,
@@ -143,7 +143,7 @@ index 65ba08c373d783305b9ba674e3c575bbc91c8165..8dcf830698d23b59e5af41f1f162a42c
          const corePreResumeOps = [
              queuePreResume("Page.enable"),
 -            queuePreResume("Runtime.enable"),
-+            // blessGTM Phase 1: do not enable Runtime at target attach — fingerprint.com
++            // Aether Phase 1: do not enable Runtime at target attach — fingerprint.com
 +            // collects developer_tools/bot signals when the JS agent loads.
              queuePreResume("Target.setAutoAttach", {
                  autoAttach: true,

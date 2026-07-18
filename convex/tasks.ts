@@ -3,24 +3,31 @@ import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { taskStatus } from "./schema";
-import { assertWorkerKey, isProfileRestricted } from "./lib/guards";
+import { assertWorkerKey, isProfileDisabled } from "./lib/guards";
 import { appendEvent } from "./events";
-import { getActiveStrategy } from "./policies";
+import { internal } from "./_generated/api";
 
-// Pinned (Phase 2): lease 10 min, max 3 attempts, 30 min * attempts backoff.
-// LEASE_MS deployment env var exists only for verification scripts.
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 30 * 60 * 1000;
-const CLAIMABLE_STATUSES = ["warming", "active", "cooldown"];
-// signup/login are the only tasks runnable before the profile leaves provisioning.
-const PROVISIONING_TASK_TYPES = ["signup", "login", "complete_onboarding"];
-// Mirror of src/channels/router.ts (Convex can't import from src/).
-const API_TASK_TYPES = ["send_message", "send_invitation", "fetch_profile"];
+const CLAIMABLE_STATUSES = ["active", "provisioning"];
+const AGENT_TASK_TYPES = ["agent", "browse"];
 
 function leaseMs(): number {
   const override = process.env.LEASE_MS;
   return override ? Number(override) : DEFAULT_LEASE_MS;
+}
+
+async function scheduleAgentWebhook(ctx: MutationCtx, task: Doc<"tasks">): Promise<void> {
+  if (task.type !== "agent") return;
+  const payload = (task.payload ?? {}) as { webhookUrl?: string };
+  if (!payload.webhookUrl) return;
+  // n8n /webhook-test/ URLs are delivered from the local worker (one-shot, editor-bound).
+  if (payload.webhookUrl.includes("/webhook-test/")) return;
+  await ctx.db.patch(task._id, {
+    webhookDelivery: { status: "pending", attempt: 0 },
+  });
+  await ctx.scheduler.runAfter(0, internal.webhooks.deliver, { taskId: task._id, attempt: 1 });
 }
 
 export const enqueue = mutation({
@@ -84,7 +91,6 @@ export const cancel = mutation({
   },
 });
 
-// Queue depth by status (CLI `status` view).
 export const stats = query({
   args: {},
   handler: async (ctx) => {
@@ -111,7 +117,6 @@ export const sessionForTask = query({
   },
 });
 
-// Single serializable mutation = the concurrency control. No extra locks.
 export const claimNext = mutation({
   args: { workerKey: v.string(), workerId: v.id("workers") },
   handler: async (ctx, { workerKey, workerId }) => {
@@ -126,24 +131,20 @@ export const claimNext = mutation({
       const profile = await ctx.db.get(task.profileId);
       if (!profile) continue;
       if (profile.activeSessionId !== undefined) continue;
-      if (profile.maintained === false) continue;
-      if (isProfileRestricted(profile)) continue;
+      if (isProfileDisabled(profile)) continue;
+
       const claimable =
         CLAIMABLE_STATUSES.includes(profile.status) ||
-        (profile.status === "provisioning" && PROVISIONING_TASK_TYPES.includes(task.type));
+        (AGENT_TASK_TYPES.includes(task.type) && profile.ephemeral === true);
       if (!claimable) continue;
 
-      // API tasks still create a sessions row (channel api) — one audit trail.
-      const channel = API_TASK_TYPES.includes(task.type) ? ("api" as const) : ("browser" as const);
-      const strategy = await getActiveStrategy(ctx, profile.cohortTag);
       const sessionId = await ctx.db.insert("sessions", {
         profileId: profile._id,
         taskId: task._id,
         workerId,
-        channel,
+        channel: "browser",
         status: "running",
         startedAt: now,
-        strategyVersionId: strategy?._id,
       });
       await ctx.db.patch(task._id, {
         status: "claimed",
@@ -157,9 +158,9 @@ export const claimNext = mutation({
         taskId: task._id,
         type: "SessionStarted",
         ts: now,
-        channel,
+        channel: "browser",
         data: { taskType: task.type },
-        ctx: { strategyVersionId: strategy?._id },
+        ctx: {},
       });
 
       const [claimedTask, persona, launchConfig, proxyBinding, currentSnapshot] =
@@ -179,14 +180,13 @@ export const claimNext = mutation({
         proxyBinding,
         currentSnapshot,
         sessionId,
-        strategyVersionId: strategy?._id ?? null,
+        strategyVersionId: null,
       };
     }
     return null;
   },
 });
 
-// Egress IP is only known once the runner resolves it through the session proxy.
 export const setSessionEgress = mutation({
   args: {
     workerKey: v.string(),
@@ -242,6 +242,20 @@ async function closeSession(
   });
 }
 
+export const setResult = mutation({
+  args: {
+    workerKey: v.string(),
+    taskId: v.id("tasks"),
+    result: v.any(),
+  },
+  handler: async (ctx, { workerKey, taskId, result }) => {
+    assertWorkerKey(workerKey);
+    const task = await ctx.db.get(taskId);
+    if (!task) throw new Error(`task not found: ${taskId}`);
+    await ctx.db.patch(taskId, { result });
+  },
+});
+
 export const complete = mutation({
   args: { workerKey: v.string(), taskId: v.id("tasks"), outcome: v.optional(v.string()) },
   handler: async (ctx, { workerKey, taskId, outcome }) => {
@@ -255,6 +269,8 @@ export const complete = mutation({
       leaseExpiresAt: undefined,
     });
     await closeSession(ctx, task, "done", outcome ?? "ok");
+    const updated = await ctx.db.get(taskId);
+    if (updated) await scheduleAgentWebhook(ctx, updated);
   },
 });
 
@@ -279,6 +295,10 @@ async function failTask(ctx: MutationCtx, task: Doc<"tasks">, error: string): Pr
     });
   }
   await closeSession(ctx, task, "failed", error);
+  const updated = await ctx.db.get(task._id);
+  if (updated && updated.status === "failed") {
+    await scheduleAgentWebhook(ctx, updated);
+  }
 }
 
 export const fail = mutation({

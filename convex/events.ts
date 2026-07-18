@@ -1,4 +1,4 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v, type Infer } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -20,7 +20,6 @@ const eventCtx = v.object({
   egressIp: v.optional(v.string()),
   launchConfigHash: v.optional(v.string()),
   personaVersion: v.optional(v.number()),
-  strategyVersionId: v.optional(v.id("strategyVersions")),
   model: v.optional(v.string()),
   stagehandVersion: v.optional(v.string()),
 });
@@ -79,41 +78,6 @@ export const append = mutation({
       });
     }
     return id;
-  },
-});
-
-// Unipile webhook → same event log, same envelope (one audit trail).
-const WEBHOOK_TYPE_MAP: Record<string, string> = {
-  "message.new": "MessageReceived",
-  "relation.request.accept": "InvitationAccepted",
-};
-
-export const appendFromWebhook = internalMutation({
-  args: { body: v.any() },
-  handler: async (ctx, { body }) => {
-    const payload = (body ?? {}) as Record<string, unknown>;
-    const eventName = (payload.event ?? payload.type) as string | undefined;
-    const accountId = (payload.account_id ?? payload.accountId) as string | undefined;
-
-    const mappedType = eventName ? WEBHOOK_TYPE_MAP[eventName] : undefined;
-    if (!mappedType) return { stored: false, reason: `unhandled event: ${eventName}` };
-    if (!accountId) return { stored: false, reason: "missing account_id" };
-
-    const profile = await ctx.db
-      .query("profiles")
-      .filter((q) => q.eq(q.field("unipileAccountId"), accountId))
-      .first();
-    if (!profile) return { stored: false, reason: `no profile for account ${accountId}` };
-
-    const eventId = await appendEvent(ctx, {
-      profileId: profile._id,
-      type: mappedType,
-      ts: Date.now(),
-      channel: "api",
-      data: payload,
-      ctx: {},
-    });
-    return { stored: true, eventId };
   },
 });
 

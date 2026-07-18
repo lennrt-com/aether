@@ -91,7 +91,7 @@ export async function promptCreateSharedSettings(
     (await select({
       message: "Agent model (browser automation)",
       choices: AGENT_MODEL_CHOICES.map((m) => ({ name: m, value: m })),
-      default: "claude-sonnet-4-6",
+      default: "gemini-3-flash-preview",
     }));
 
   const personaModel =

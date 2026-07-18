@@ -62,7 +62,7 @@ export function buildPhoneTools(opts: {
   const audit = opts.audit ?? (async () => {});
   const geo = opts.geo ?? process.env.DEFAULT_GEO ?? "DE";
   const operator = process.env.FIVE_SIM_OPERATOR ?? "any";
-  const product = process.env.FIVE_SIM_PRODUCT ?? "linkedin";
+  const product = process.env.FIVE_SIM_PRODUCT ?? "any";
 
   const state: PhoneToolsState = {
     orderId: null,

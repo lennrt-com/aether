@@ -98,7 +98,7 @@ export async function evalInFrame<T = unknown>(
     "Page.createIsolatedWorld",
     {
       frameId,
-      worldName: `blessgtm_${frameId.slice(0, 12)}`,
+      worldName: `aether_${frameId.slice(0, 12)}`,
       grantUniversalAccess: true,
     },
   );

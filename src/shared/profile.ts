@@ -1,8 +1,11 @@
 // Profile helpers — mirror convex/lib/guards.ts (Convex can't import from src/).
 
-export function isProfileRestricted(profile: {
-  isRestricted?: boolean;
+export function isProfileDisabled(profile: {
   status?: string;
+  maintained?: boolean;
 }): boolean {
-  return profile.isRestricted === true || profile.status === "restricted";
+  return profile.status === "disabled" || profile.maintained === false;
 }
+
+/** @deprecated use isProfileDisabled */
+export const isProfileRestricted = isProfileDisabled;

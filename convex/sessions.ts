@@ -1,15 +1,8 @@
-// Manual (hands-on) sessions: a human drives the browser instead of an agent.
-// These mirror the task-session lifecycle (one active session per profile,
-// SessionStarted/SessionEnded events, snapshot anchor) without a task/worker.
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertWorkerKey } from "./lib/guards";
 import { appendEvent } from "./events";
-import { getActiveStrategy } from "./policies";
 
-// Open a manual session and return the identity bundle the runner needs to
-// launch Chrome (launch config, proxy, latest snapshot). Throws if the profile
-// already has an active session to avoid two Chrome instances on one userDataDir.
 export const openManual = mutation({
   args: { workerKey: v.string(), profileId: v.id("profiles") },
   handler: async (ctx, args) => {
@@ -57,8 +50,6 @@ export const openManual = mutation({
   },
 });
 
-// Foreground pipeline (bless create / bless experiment): session without a
-// task/worker. taskType labels the pipeline in events (default: signup).
 export const openPipeline = mutation({
   args: {
     workerKey: v.string(),
@@ -75,16 +66,14 @@ export const openPipeline = mutation({
       );
     }
 
-    const taskType = args.taskType ?? "signup";
+    const taskType = args.taskType ?? "agent";
     const now = Date.now();
-    const strategy = await getActiveStrategy(ctx, profile.cohortTag);
     const sessionId = await ctx.db.insert("sessions", {
       profileId: profile._id,
       kind: "pipeline",
       channel: "browser",
       status: "running",
       startedAt: now,
-      strategyVersionId: strategy?._id,
     });
     await ctx.db.patch(profile._id, { activeSessionId: sessionId });
     await appendEvent(ctx, {
@@ -94,7 +83,7 @@ export const openPipeline = mutation({
       ts: now,
       channel: "browser",
       data: { kind: "pipeline", taskType },
-      ctx: { strategyVersionId: strategy?._id },
+      ctx: {},
     });
 
     const [persona, launchConfig, proxyBinding, currentSnapshot] = await Promise.all([
@@ -112,7 +101,7 @@ export const openPipeline = mutation({
       proxyBinding,
       currentSnapshot,
       sessionId,
-      strategyVersionId: strategy?._id ?? null,
+      strategyVersionId: null,
     };
   },
 });
@@ -187,8 +176,6 @@ export const closeManual = mutation({
   },
 });
 
-// Crash recovery: clear a stuck activeSessionId left by a manual session whose
-// process died before closeManual ran. Marks the dangling session failed.
 export const forceRelease = mutation({
   args: { workerKey: v.string(), profileId: v.id("profiles") },
   handler: async (ctx, args) => {

@@ -2,96 +2,75 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
-import { PixelCircle } from "@/components/pixel-circle";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
-function formatNumber(value: number): string {
-  return value.toLocaleString();
+function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "done") return "default";
+  if (status === "failed") return "destructive";
+  if (status === "running") return "secondary";
+  return "outline";
 }
 
-function LegendItem({
-  color,
-  label,
-  count,
-}: {
-  color: string;
-  label: string;
-  count: number;
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span
-        className="size-2.5 shrink-0 rounded-full"
-        style={{ backgroundColor: color }}
-      />
-      <span className="text-sm tracking-wide text-body">{label}</span>
-      <span className="font-display text-sm font-medium text-ink">
-        {formatNumber(count)}
-      </span>
-    </div>
-  );
-}
-
-export default function PoolPage() {
-  const pool = useQuery(api.dashboard.poolPixels);
-  const loading = pool === undefined;
+export default function SessionsPage() {
+  const sessions = useQuery(api.dashboard.recentSessions);
 
   return (
-    <div className="relative min-h-full">
-      <main className="relative z-10 mx-auto max-w-4xl px-6 py-10">
-        <section className="flex flex-col items-center">
-          <div className="aspect-square w-full max-w-xl">
-            {loading ? (
-              <Skeleton className="h-full w-full rounded-full" />
-            ) : (
-              <PixelCircle
-                active={pool.active}
-                restricted={pool.restricted}
-                other={pool.other}
-                total={pool.total}
-              />
-            )}
-          </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-display text-3xl font-light tracking-tight text-ink">Sessions</h1>
+        <p className="mt-1 text-sm text-muted">Recent browser and API sessions.</p>
+      </div>
 
-          <div className="mt-6 flex flex-col items-center text-center">
-            {loading ? (
-              <Skeleton className="h-20 w-44" />
-            ) : (
-              <p className="font-display text-7xl font-medium tracking-tight text-ink md:text-8xl">
-                {Math.round(pool.activePct)}%
-              </p>
-            )}
-          </div>
-
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-7 gap-y-3 border-t border-hairline pt-6">
-            {loading ? (
-              <>
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-4 w-24" />
-              </>
-            ) : (
-              <>
-                <LegendItem
-                  color="var(--status-active)"
-                  label="Active"
-                  count={pool.active}
-                />
-                <LegendItem
-                  color="var(--status-restricted)"
-                  label="Restricted"
-                  count={pool.restricted}
-                />
-                <LegendItem
-                  color="var(--status-idle)"
-                  label="Other"
-                  count={pool.other}
-                />
-              </>
-            )}
-          </div>
-        </section>
-      </main>
+      <Card className="border-hairline bg-surface-card">
+        <CardHeader>
+          <CardTitle>Recent sessions</CardTitle>
+          <CardDescription>Newest first.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sessions === undefined ? (
+            <Skeleton className="h-40 w-full" />
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-muted">No sessions yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-hairline text-muted">
+                    <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">Profile</th>
+                    <th className="py-2 pr-4 font-medium">Channel</th>
+                    <th className="py-2 pr-4 font-medium">Egress</th>
+                    <th className="py-2 pr-4 font-medium">Started</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s) => (
+                    <tr key={s.id} className="border-b border-hairline/60">
+                      <td className="py-3 pr-4">
+                        <Badge variant={statusVariant(s.status)}>{s.status}</Badge>
+                      </td>
+                      <td className="py-3 pr-4">{s.profileName}</td>
+                      <td className="py-3 pr-4">{s.channel}</td>
+                      <td className="py-3 pr-4 font-mono text-xs">{s.egressIp ?? "—"}</td>
+                      <td className="py-3 pr-4 text-muted">
+                        {new Date(s.startedAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

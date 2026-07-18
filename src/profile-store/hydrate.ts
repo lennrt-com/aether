@@ -17,7 +17,7 @@ function isGzip(data: Buffer): boolean {
 }
 
 async function extractArchive(profileDir: string, data: Buffer): Promise<void> {
-  const tmpBase = path.join(os.tmpdir(), `blessgtm-hydrate-${process.pid}-${Date.now()}`);
+  const tmpBase = path.join(os.tmpdir(), `aether-hydrate-${process.pid}-${Date.now()}`);
   try {
     if (isZstd(data)) {
       const tarData = Buffer.from(decompress(new Uint8Array(data)));

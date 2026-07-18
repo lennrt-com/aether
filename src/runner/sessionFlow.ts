@@ -12,10 +12,14 @@ import { runPreflight } from "./preflight.js";
 import { runFingerprintCheck } from "./fingerprintCheck.js";
 import { runSignup } from "./signup.js";
 import { runExperiment } from "./experiment.js";
+import { runAgent } from "./agent.js";
 import { createConvexBlobStore } from "../profile-store/convexBlobStore.js";
 import { hydrateProfile } from "../profile-store/hydrate.js";
 import { snapshotProfile } from "../profile-store/snapshot.js";
 import { resolveAgentModel } from "../shared/agentModels.js";
+import { parseAgentJobPayload, type AgentJobPayload } from "../shared/agentPayload.js";
+import { redactAgentResult } from "../shared/redactSecrets.js";
+import { deliverAgentWebhookFromWorker } from "./deliverWebhook.js";
 
 export interface SessionBundle {
   task: Doc<"tasks"> | null;
@@ -25,7 +29,7 @@ export interface SessionBundle {
   proxyBinding: Doc<"proxyBindings"> | null;
   currentSnapshot: Doc<"profileSnapshots"> | null;
   sessionId: Id<"sessions">;
-  strategyVersionId: Id<"strategyVersions"> | null;
+  strategyVersionId: string | null;
 }
 
 export interface SignupSessionOptions {
@@ -324,4 +328,189 @@ export async function runExperimentSession(
   });
 
   return { exitCode, egressIp: session.egressIp };
+}
+
+export interface AgentSessionOptions {
+  convex: ConvexHttpClient;
+  workerKey: string;
+  emit: Emit;
+  bundle: SessionBundle;
+  payload: AgentJobPayload;
+  onLog?: (line: string) => void;
+}
+
+function resolveProxy(
+  payload: AgentJobPayload,
+  binding: SessionBundle["proxyBinding"],
+): { server: string; username?: string; password?: string } | undefined {
+  if (payload.proxy) return payload.proxy;
+  if (!binding) return undefined;
+  return {
+    server: binding.server,
+    username: binding.username,
+    password: binding.password,
+  };
+}
+
+export async function runAgentSession(opts: AgentSessionOptions): Promise<SignupSessionResult> {
+  const { convex, workerKey, emit, bundle, payload } = opts;
+  const agentModel = resolveAgentModel(payload.model);
+  const proxy = resolveProxy(payload, bundle.proxyBinding);
+
+  // Resolve Vaultwarden refs before launching Chrome — fail fast with a clear error.
+  if (payload.secretRefs) {
+    try {
+      const { resolveSecretRefs } = await import("./secrets/bitwarden.js");
+      await resolveSecretRefs(payload.secretRefs);
+    } catch (err) {
+      const message = String(err);
+      console.error(`[agent] secret resolution failed: ${message}`);
+      await emit("ActionFailed", { taskType: "agent", error: message }, randomUUID());
+      if (bundle.task) {
+        await convex.mutation(api.tasks.setResult, {
+          workerKey,
+          taskId: bundle.task._id,
+          result: {
+            success: false,
+            summary: message,
+            steps: 0,
+            finalUrl: null,
+            error: message,
+          },
+        });
+        await deliverAgentWebhookFromWorker({
+          convex,
+          workerKey,
+          taskId: bundle.task._id,
+          payload,
+          status: "failed",
+          result: {
+            success: false,
+            summary: message,
+            steps: 0,
+            finalUrl: null,
+            error: message,
+          },
+          lastError: message,
+        });
+      }
+      return { exitCode: 1 };
+    }
+  }
+
+  const profilesDir = process.env.PROFILES_DIR ?? "./.profiles";
+  const userDataDir = path.resolve(profilesDir, bundle.profile._id);
+  fs.mkdirSync(userDataDir, { recursive: true });
+
+  const blobStore = createConvexBlobStore(convex, workerKey);
+  const hydrateOutcome = await hydrateProfile({
+    profileDir: userDataDir,
+    blobStore,
+    latest: bundle.currentSnapshot
+      ? {
+          storageId: bundle.currentSnapshot.storageId,
+          contentHash: bundle.currentSnapshot.contentHash,
+        }
+      : null,
+  });
+  await emit("FingerprintLoaded", {
+    hydrate: hydrateOutcome,
+    launchConfigHash: bundle.launchConfig?.hash ?? null,
+    snapshotHash: bundle.currentSnapshot?.contentHash ?? null,
+  });
+
+  const session = await launchSession({
+    userDataDir,
+    headless: process.env.HEADLESS === "true",
+    model: agentModel,
+    locale: bundle.launchConfig?.locale,
+    viewport: bundle.launchConfig
+      ? { width: bundle.launchConfig.windowWidth, height: bundle.launchConfig.windowHeight }
+      : undefined,
+    proxy,
+    fingerprint:
+      process.env.FINGERPRINT_SPOOF !== "false" && bundle.launchConfig?.fingerprintSeed
+        ? {
+            seed: bundle.launchConfig.fingerprintSeed,
+            hardwareConcurrency: bundle.launchConfig.hardwareConcurrency ?? undefined,
+            deviceMemory: bundle.launchConfig.deviceMemory ?? undefined,
+            languages: localeToLanguages(bundle.launchConfig.locale),
+          }
+        : undefined,
+    args: ["--password-store=basic"],
+    onLog: opts.onLog,
+  });
+
+  await convex.mutation(api.tasks.setSessionEgress, {
+    workerKey,
+    sessionId: bundle.sessionId,
+    egressIp: session.egressIp,
+    launchConfigHash: bundle.launchConfig?.hash,
+  });
+
+  let exitCode = 0;
+  let agentResult;
+  try {
+    agentResult = await runAgent({
+      stagehand: session.stagehand,
+      emit,
+      payload,
+      convex,
+      workerKey,
+      downloadDir: path.join(userDataDir, "job-downloads"),
+    });
+    if (!agentResult.success) exitCode = 1;
+  } catch (err) {
+    const message = String(err);
+    console.error(`[agent] run failed: ${message}`);
+    await emit("ActionFailed", { taskType: "agent", error: message }, randomUUID());
+    exitCode = 1;
+    agentResult = {
+      success: false,
+      summary: message,
+      steps: 0,
+      finalUrl: null,
+      error: message,
+    };
+  } finally {
+    await session.close();
+  }
+
+  if (agentResult && bundle.task) {
+    await convex.mutation(api.tasks.setResult, {
+      workerKey,
+      taskId: bundle.task._id,
+      result: redactAgentResult(agentResult as unknown as Record<string, unknown>),
+    });
+    await deliverAgentWebhookFromWorker({
+      convex,
+      workerKey,
+      taskId: bundle.task._id,
+      payload,
+      status: agentResult.success ? "done" : "failed",
+      result: agentResult,
+      lastError: agentResult.error,
+    });
+  }
+
+  const snapshot = await snapshotProfile({
+    profileDir: userDataDir,
+    blobStore,
+    convex,
+    workerKey,
+    profileId: bundle.profile._id,
+    sessionId: bundle.sessionId,
+    chromeVersion: bundle.profile.chromeVersion,
+  });
+  await emit("SnapshotCommitted", {
+    snapshotId: snapshot.snapshotId,
+    contentHash: snapshot.contentHash,
+    sizeBytes: snapshot.sizeBytes,
+  });
+
+  return { exitCode, egressIp: session.egressIp };
+}
+
+export function parseAgentPayloadFromTask(taskPayload: unknown): AgentJobPayload {
+  return parseAgentJobPayload(taskPayload);
 }

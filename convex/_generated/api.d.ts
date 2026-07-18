@@ -8,10 +8,8 @@
  * @module
  */
 
-import type * as age from "../age.js";
 import type * as agentInstructions from "../agentInstructions.js";
 import type * as auth from "../auth.js";
-import type * as campaigns from "../campaigns.js";
 import type * as credentials from "../credentials.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
@@ -19,24 +17,24 @@ import type * as events from "../events.js";
 import type * as fingerprints from "../fingerprints.js";
 import type * as health from "../health.js";
 import type * as http from "../http.js";
+import type * as jobs from "../jobs.js";
 import type * as launchConfigs from "../launchConfigs.js";
+import type * as lib_apiAuth from "../lib/apiAuth.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_ephemeralProfile from "../lib/ephemeralProfile.js";
 import type * as lib_guards from "../lib/guards.js";
-import type * as lib_profileAge from "../lib/profileAge.js";
-import type * as lib_unipile from "../lib/unipile.js";
 import type * as maintenance from "../maintenance.js";
-import type * as monitoring from "../monitoring.js";
+import type * as mcpConnections from "../mcpConnections.js";
 import type * as personas from "../personas.js";
 import type * as ping from "../ping.js";
-import type * as policies from "../policies.js";
 import type * as profiles from "../profiles.js";
-import type * as provisioningRescue from "../provisioningRescue.js";
 import type * as proxies from "../proxies.js";
 import type * as proxyPool from "../proxyPool.js";
-import type * as scheduler from "../scheduler.js";
 import type * as sessions from "../sessions.js";
 import type * as snapshots from "../snapshots.js";
 import type * as tasks from "../tasks.js";
+import type * as webhookDelivery from "../webhookDelivery.js";
+import type * as webhooks from "../webhooks.js";
 import type * as workers from "../workers.js";
 
 import type {
@@ -46,10 +44,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  age: typeof age;
   agentInstructions: typeof agentInstructions;
   auth: typeof auth;
-  campaigns: typeof campaigns;
   credentials: typeof credentials;
   crons: typeof crons;
   dashboard: typeof dashboard;
@@ -57,24 +53,24 @@ declare const fullApi: ApiFromModules<{
   fingerprints: typeof fingerprints;
   health: typeof health;
   http: typeof http;
+  jobs: typeof jobs;
   launchConfigs: typeof launchConfigs;
+  "lib/apiAuth": typeof lib_apiAuth;
   "lib/auth": typeof lib_auth;
+  "lib/ephemeralProfile": typeof lib_ephemeralProfile;
   "lib/guards": typeof lib_guards;
-  "lib/profileAge": typeof lib_profileAge;
-  "lib/unipile": typeof lib_unipile;
   maintenance: typeof maintenance;
-  monitoring: typeof monitoring;
+  mcpConnections: typeof mcpConnections;
   personas: typeof personas;
   ping: typeof ping;
-  policies: typeof policies;
   profiles: typeof profiles;
-  provisioningRescue: typeof provisioningRescue;
   proxies: typeof proxies;
   proxyPool: typeof proxyPool;
-  scheduler: typeof scheduler;
   sessions: typeof sessions;
   snapshots: typeof snapshots;
   tasks: typeof tasks;
+  webhookDelivery: typeof webhookDelivery;
+  webhooks: typeof webhooks;
   workers: typeof workers;
 }>;
 

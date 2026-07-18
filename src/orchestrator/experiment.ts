@@ -50,7 +50,6 @@ const rawEmit = createEmitter({
   ctx: {
     launchConfigHash: bundle.launchConfig?.hash,
     personaVersion: bundle.persona?.version,
-    strategyVersionId: bundle.strategyVersionId ?? undefined,
     model: agentModel,
   },
 });

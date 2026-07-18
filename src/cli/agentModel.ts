@@ -19,7 +19,7 @@ function asAlias(value: string | undefined | null): AgentModelAlias | undefined 
 
 /** Interactive picker for browser automation model. */
 export async function promptAgentModel(stored?: string | null): Promise<AgentModelAlias> {
-  const defaultAlias = asAlias(stored) ?? "claude-sonnet-4-6";
+  const defaultAlias = asAlias(stored) ?? "gemini-3-flash-preview";
   return select({
     message: "Agent model (browser automation)",
     choices: AGENT_MODEL_CHOICES.map((m) => ({ name: m, value: m })),
@@ -51,7 +51,7 @@ export async function resolveAgentModelForStartup(opts: {
   const fromEnv = asAlias(process.env.AGENT_MODEL);
   if (fromEnv) return fromEnv;
 
-  return "claude-sonnet-4-6";
+  return "gemini-3-flash-preview";
 }
 
 /** Set AGENT_MODEL for child runners from a startup alias. */

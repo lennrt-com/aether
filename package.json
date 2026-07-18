@@ -1,5 +1,5 @@
 {
-  "name": "blessgtm-hybrid-agent",
+  "name": "aether",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.20.0",
@@ -7,10 +7,10 @@
     "node": ">=20"
   },
   "bin": {
-    "bless": "bin/bless.mjs"
+    "aether": "bin/aether.mjs"
   },
   "scripts": {
-    "bless": "tsx src/cli/index.ts",
+    "aether": "tsx src/cli/index.ts",
     "link-cli": "node scripts/link-cli.mjs",
     "refresh-path": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/refresh-path.ps1",
     "worker": "tsx src/worker/main.ts",
@@ -26,6 +26,7 @@
     "@convex-dev/auth": "^0.0.94",
     "@faker-js/faker": "^10.4.0",
     "@inquirer/prompts": "^8.5.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "ai": "^6.0.201",
     "chrome-launcher": "^1.2.1",
     "commander": "^15.0.0",

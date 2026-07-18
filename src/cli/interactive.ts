@@ -15,8 +15,7 @@ import {
   planParallelJobs,
   promptParallelProxyRotation,
 } from "./createShared.js";
-import { convex, acctStamp, spawnBlessCli, spawnTsxScript, spawnTsxScriptTagged } from "./helpers.js";
-import { runCampaign } from "../campaign/main.js";
+import { convex, acctStamp, spawnAetherCli, spawnTsxScript, spawnTsxScriptTagged } from "./helpers.js";
 
 export type { CreateOptions, CreateParallelOptions };
 
@@ -155,7 +154,7 @@ export async function runExperimentInteractive(opts: ExperimentOptions): Promise
     profileId = await select<Id<"profiles">>({
       message: "Profile to act through",
       choices: profiles.map((p) => ({
-        name: `${p.name} — ${p.status}${isProfileRestricted(p) ? ` [RESTRICTED@${p.restrictedAtPhase ?? "?"}]` : ""}${p.linkedInProfileUrl ? ` (${p.linkedInProfileUrl})` : ""}`,
+        name: `${p.name} — ${p.status}${isProfileRestricted(p) ? " [disabled]" : ""}`,
         value: p._id as Id<"profiles">,
       })),
     });
@@ -189,7 +188,7 @@ export async function runExperimentInteractive(opts: ExperimentOptions): Promise
     (await select({
       message: "Agent model (browser automation)",
       choices: AGENT_MODEL_CHOICES.map((m) => ({ name: m, value: m })),
-      default: "claude-sonnet-4-6",
+      default: "gemini-3-flash-preview",
     }));
 
   const maxSteps =
@@ -209,7 +208,7 @@ export async function runExperimentInteractive(opts: ExperimentOptions): Promise
   const orchArgs: string[] = [profileId, "--prompt", prompt];
   if (opts.startUrl) orchArgs.push("--start-url", opts.startUrl);
   if (maxSteps) orchArgs.push("--max-steps", maxSteps);
-  orchArgs.push("--model", agentModel ?? "claude-sonnet-4-6");
+  orchArgs.push("--model", agentModel ?? "gemini-3-flash-preview");
 
   return spawnTsxScript("src/orchestrator/experiment.ts", orchArgs, { TZ: tz });
 }
@@ -253,7 +252,7 @@ export async function runExperimentAll(opts: ExperimentAllOptions): Promise<numb
 
   const prompt = opts.prompt?.trim() || DEFAULT_RESNAPSHOT_PROMPT;
   const maxSteps = opts.maxSteps ?? "1";
-  const model = opts.model ?? "claude-sonnet-4-6";
+  const model = opts.model ?? "gemini-3-flash-preview";
   const startUrl = opts.startUrl ?? "https://example.com";
   const concurrency = Math.max(1, Math.trunc(Number(opts.concurrency ?? "1")) || 1);
 
@@ -349,7 +348,7 @@ export async function runRemoveProfiles(opts: RemoveProfilesOptions): Promise<nu
     profileIds = await checkbox({
       message: "Profiles to delete (all linked Convex data + local profile dir)",
       choices: profiles.map((p) => ({
-        name: `${p.name} — ${p.status}${isProfileRestricted(p) ? ` [RESTRICTED@${p.restrictedAtPhase ?? "?"}]` : ""}${p.activeSessionId ? " [active session]" : ""}${p.linkedInProfileUrl ? ` (${p.linkedInProfileUrl})` : ""}`,
+        name: `${p.name} — ${p.status}${isProfileRestricted(p) ? " [disabled]" : ""}${p.activeSessionId ? " [active session]" : ""}`,
         value: p._id as Id<"profiles">,
       })),
       required: true,
@@ -425,65 +424,90 @@ export async function runReset(assumeYes = false): Promise<void> {
   );
 }
 
-function runBlessSubcommand(args: string[]): Promise<number> {
-  return spawnBlessCli(args);
+function runAetherSubcommand(args: string[]): Promise<number> {
+  return spawnAetherCli(args);
 }
 
 export async function showMainMenu(): Promise<void> {
-  const action = await select({
-    message: "bless — what do you want to do?",
-    choices: [
-      { name: "Create account (interactive signup)", value: "create" },
-      { name: "Create accounts in parallel", value: "create-parallel" },
-      { name: "Run account campaign (sequential, rate-limited)", value: "campaign" },
-      { name: "Run experiment (agent prompt)", value: "experiment" },
-      { name: "List profiles", value: "profiles" },
-      { name: "Fleet status", value: "status" },
-      { name: "Manage proxies", value: "proxy" },
-      { name: "Reset DB (dev wipe)", value: "reset" },
-      { name: "Start worker", value: "worker" },
-      { name: "Quit", value: "quit" },
-    ],
-  });
+  console.log("\nAether — anti-detect AI browser agent\n");
 
-  switch (action) {
-    case "create":
-      process.exitCode = await runCreateInteractive({});
-      break;
-    case "create-parallel":
-      process.exitCode = await runCreateParallelInteractive({});
-      break;
-    case "campaign":
-      process.exitCode = await runCampaign({});
-      break;
-    case "experiment":
-      process.exitCode = await runExperimentInteractive({});
-      break;
-    case "profiles":
-      process.exitCode = await runBlessSubcommand(["profiles"]);
-      break;
-    case "status":
-      process.exitCode = await runBlessSubcommand(["status"]);
-      break;
-    case "proxy": {
-      const sub = await select({
-        message: "Proxies",
-        choices: [
-          { name: "List", value: "list" },
-          { name: "Add", value: "add" },
-          { name: "Remove", value: "remove" },
-        ],
-      });
-      process.exitCode = await runBlessSubcommand(["proxy", sub]);
-      break;
+  for (;;) {
+    const action = await select({
+      message: "What do you want to do?",
+      choices: [
+        { name: "Submit agent job", value: "run" },
+        { name: "Run experiment (foreground, no queue)", value: "experiment" },
+        { name: "List jobs", value: "jobs" },
+        { name: "List profiles", value: "profiles" },
+        { name: "Fleet status", value: "status" },
+        { name: "Manage proxies", value: "proxy" },
+        { name: "Manage MCP connections", value: "mcp" },
+        { name: "Stealth test (open URL in hardened Chrome)", value: "stealth" },
+        { name: "Start worker", value: "worker" },
+        { name: "Reset DB (dev wipe)", value: "reset" },
+        { name: "Quit", value: "quit" },
+      ],
+    });
+
+    switch (action) {
+      case "run": {
+        const { runJobInteractive } = await import("./runJob.js");
+        process.exitCode = await runJobInteractive({});
+        break;
+      }
+      case "experiment":
+        process.exitCode = await runExperimentInteractive({});
+        break;
+      case "jobs":
+        process.exitCode = await runAetherSubcommand(["jobs"]);
+        break;
+      case "profiles":
+        process.exitCode = await runAetherSubcommand(["profiles"]);
+        break;
+      case "status":
+        process.exitCode = await runAetherSubcommand(["status"]);
+        break;
+      case "proxy": {
+        const sub = await select({
+          message: "Proxies",
+          choices: [
+            { name: "List", value: "list" },
+            { name: "Add", value: "add" },
+            { name: "Remove", value: "remove" },
+            { name: "Back", value: "back" },
+          ],
+        });
+        if (sub !== "back") {
+          process.exitCode = await runAetherSubcommand(["proxy", sub]);
+        }
+        break;
+      }
+      case "mcp": {
+        const { runMcpInteractive } = await import("./mcpConnections.js");
+        process.exitCode = await runMcpInteractive();
+        break;
+      }
+      case "stealth": {
+        const url = await input({
+          message: "URL to open",
+          default: "https://example.com",
+        });
+        process.exitCode = await runAetherSubcommand(["stealthtest", url.trim(), "--create"]);
+        break;
+      }
+      case "reset":
+        await runReset(false);
+        break;
+      case "worker":
+        console.log("\nStarting worker (blocks this terminal). Ctrl-C to stop.\n");
+        process.exitCode = await runAetherSubcommand(["worker"]);
+        return;
+      case "quit":
+        return;
     }
-    case "reset":
-      await runReset(false);
-      break;
-    case "worker":
-      process.exitCode = await runBlessSubcommand(["worker"]);
-      break;
-    case "quit":
-      break;
+
+    if (action !== "quit") {
+      console.log("");
+    }
   }
 }

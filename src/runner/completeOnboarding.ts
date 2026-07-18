@@ -207,7 +207,7 @@ export async function runCompleteOnboarding(deps: AccountFlowDeps): Promise<bool
   await convex.mutation(api.profiles.transition, {
     workerKey,
     profileId: profile._id,
-    to: "warming",
+    to: "active",
     reason: linkedInProfileUrl
       ? "onboarding completed (rescue)"
       : "onboarding completed (rescue, profile URL pending)",

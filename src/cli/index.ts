@@ -58,6 +58,7 @@ program
   .option("--webhook-secret <secret>", "HMAC secret for webhook signature")
   .option("--tools <list>", "comma-separated: captcha,email,phone")
   .option("--metadata <json>", "opaque metadata echoed in webhook payload")
+  .option("--preferred-worker <name>", "only this WORKER_NAME may claim the job (e.g. local-1)")
   .option("--poll", "poll job status until terminal state")
   .action(async (opts) => {
     const hasRequired = Boolean(opts.startUrl && opts.instructions && opts.webhookUrl);
@@ -78,6 +79,7 @@ program
         webhookSecret: opts.webhookSecret,
         tools: opts.tools,
         metadata: opts.metadata,
+        preferredWorkerName: opts.preferredWorker,
         poll: opts.poll,
       });
       return;
@@ -99,6 +101,7 @@ program
       webhookSecret: opts.webhookSecret,
       tools: opts.tools,
       metadata: opts.metadata,
+      preferredWorkerName: opts.preferredWorker,
       poll: opts.poll ?? false,
     });
   });

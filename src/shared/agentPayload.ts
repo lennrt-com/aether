@@ -37,6 +37,8 @@ export interface AgentJobPayload {
   tools?: AgentToolName[];
   webhookUrl: string;
   webhookSecret?: string;
+  /** If set, only the worker registered with this name may claim the job (e.g. "local-1"). */
+  preferredWorkerName?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -159,6 +161,14 @@ export function parseAgentJobPayload(raw: unknown): AgentJobPayload {
     throw new Error("provide either secretRefs or login, not both");
   }
 
+  let preferredWorkerName: string | undefined;
+  if (p.preferredWorkerName !== undefined) {
+    if (typeof p.preferredWorkerName !== "string" || !p.preferredWorkerName.trim()) {
+      throw new Error("preferredWorkerName must be a non-empty string");
+    }
+    preferredWorkerName = p.preferredWorkerName.trim();
+  }
+
   return {
     startUrl,
     instructions,
@@ -171,6 +181,7 @@ export function parseAgentJobPayload(raw: unknown): AgentJobPayload {
     maxSteps: typeof p.maxSteps === "number" ? p.maxSteps : undefined,
     tools: tools ?? DEFAULT_AGENT_TOOLS,
     webhookSecret: typeof p.webhookSecret === "string" ? p.webhookSecret : undefined,
+    preferredWorkerName,
     metadata:
       p.metadata && typeof p.metadata === "object" && !Array.isArray(p.metadata)
         ? (p.metadata as Record<string, unknown>)

@@ -22,6 +22,20 @@ curl -X POST "$CONVEX_SITE_URL/v1/jobs" \
   }'
 ```
 
+Pin a job to a specific worker (must match `WORKER_NAME`, e.g. `local-1` or `hostinger-1`):
+
+```bash
+curl -X POST "$CONVEX_SITE_URL/v1/jobs" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $AETHER_API_KEY" \
+  -d '{
+    "startUrl": "https://example.com",
+    "instructions": "…",
+    "webhookUrl": "https://your-server.example/hooks/aether",
+    "preferredWorkerName": "local-1"
+  }'
+```
+
 Poll status: `GET $CONVEX_SITE_URL/v1/jobs/<jobId>` with the same API key.
 
 Or use the CLI:

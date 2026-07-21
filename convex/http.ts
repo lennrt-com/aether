@@ -63,6 +63,10 @@ http.route({
       tools: Array.isArray(body.tools) ? body.tools : undefined,
       webhookUrl: String(body.webhookUrl ?? ""),
       webhookSecret: typeof body.webhookSecret === "string" ? body.webhookSecret : undefined,
+      preferredWorkerName:
+        typeof body.preferredWorkerName === "string" && body.preferredWorkerName.trim()
+          ? body.preferredWorkerName.trim()
+          : undefined,
       metadata:
         body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
           ? body.metadata

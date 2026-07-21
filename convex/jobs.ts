@@ -30,6 +30,7 @@ const agentPayloadValidator = v.object({
   tools: v.optional(v.array(v.union(v.literal("captcha"), v.literal("email"), v.literal("phone")))),
   webhookUrl: v.string(),
   webhookSecret: v.optional(v.string()),
+  preferredWorkerName: v.optional(v.string()),
   metadata: v.optional(v.any()),
 });
 
@@ -52,6 +53,7 @@ export const create = internalMutation({
   args: { payload: agentPayloadValidator },
   handler: async (ctx, { payload }) => {
     validateAgentPayload(payload);
+    const preferredWorkerName = payload.preferredWorkerName?.trim() || undefined;
     const workerKey = workerKeyFromEnv();
     const stamp = Date.now();
     const profileId = await createEphemeralProfile(ctx, {
@@ -63,6 +65,7 @@ export const create = internalMutation({
 
     const taskPayload = {
       ...payload,
+      preferredWorkerName,
       model: payload.model?.trim() || "gemini-3-flash-preview",
     };
 
@@ -97,6 +100,7 @@ export const getPublic = query({
       startUrl: payload.startUrl ?? null,
       instructions: payload.instructions ?? null,
       model: payload.model ?? null,
+      preferredWorkerName: payload.preferredWorkerName ?? null,
       metadata: payload.metadata ?? null,
       mcpServers: payload.mcpServers ?? null,
       result: result ?? null,

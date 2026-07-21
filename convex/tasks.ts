@@ -121,6 +121,9 @@ export const claimNext = mutation({
   args: { workerKey: v.string(), workerId: v.id("workers") },
   handler: async (ctx, { workerKey, workerId }) => {
     assertWorkerKey(workerKey);
+    const worker = await ctx.db.get(workerId);
+    if (!worker) return null;
+
     const now = Date.now();
     const pending = ctx.db
       .query("tasks")
@@ -137,6 +140,13 @@ export const claimNext = mutation({
         CLAIMABLE_STATUSES.includes(profile.status) ||
         (AGENT_TASK_TYPES.includes(task.type) && profile.ephemeral === true);
       if (!claimable) continue;
+
+      const preferredWorkerName = (() => {
+        const payload = task.payload as { preferredWorkerName?: unknown } | null;
+        const raw = payload?.preferredWorkerName;
+        return typeof raw === "string" ? raw.trim() : "";
+      })();
+      if (preferredWorkerName && preferredWorkerName !== worker.name) continue;
 
       const sessionId = await ctx.db.insert("sessions", {
         profileId: profile._id,

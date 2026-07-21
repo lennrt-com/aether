@@ -30,6 +30,7 @@ export interface RunJobCliOptions {
   webhookSecret?: string;
   tools?: string;
   metadata?: string;
+  preferredWorkerName?: string;
   poll?: boolean;
 }
 
@@ -69,6 +70,10 @@ export async function submitAgentJob(opts: RunJobCliOptions): Promise<{ id: stri
 
   if (opts.metadata) {
     payload.metadata = JSON.parse(opts.metadata) as Record<string, unknown>;
+  }
+
+  if (opts.preferredWorkerName?.trim()) {
+    payload.preferredWorkerName = opts.preferredWorkerName.trim();
   }
 
   const response = await fetch(`${siteUrl()}/v1/jobs`, {
